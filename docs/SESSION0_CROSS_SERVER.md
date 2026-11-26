@@ -54,8 +54,8 @@ Out of scope: window messages across sessions (Windows does not allow them eithe
     a token.
   - **A user's server acting for another user's server.** Not in this design: M3 serves only callers in session 0
     (below).
-- **Wine's own named objects.** Making `\BaseNamedObjects` machine-wide also makes machine-wide the per-user objects
-  Wine creates there directly: `WineWaylandZones` (`dlls/winewayland.drv/wayland_zones.c`),
+- **Wine's own named objects.** Making `\BaseNamedObjects` machine-wide also makes machine-wide the objects Wine
+  creates there directly, per server today (which under WineExplorer means per user): `WineWaylandZones` (`dlls/winewayland.drv/wayland_zones.c`),
   `WineAppContainerRegistrationLock` (`dlls/kernelbase/security.c`) and `__WINE_FONT_MUTEX__`
   (`dlls/win32u/font.c`), all mutexes. One user could then deny or hold another user's. It also makes reachable, as
   `Global\Name`, every name Wine creates unprefixed in a process of session 0, since session 0's local namespace is
@@ -118,9 +118,10 @@ Everything below uses one protocol on the session link, built first.
   Every alias that resolves into it is rebound, not only `Global`. `\Sessions\N\BaseNamedObjects` stays in the
   session's server, so `Local\` and unprefixed names (`BaseGetNamedObjectDirectory`, the PEB's session) stay local, as
   on Windows.
-- **Only `\BaseNamedObjects` is forwarded.** `\KernelObjects` and every other directory (`\NLS`, `\KnownDlls*`,
-  `\Device`, `\??`, `\Sessions\N\...`, window stations) are never forwarded and stay each server's own. Wine's
-  internal locks live in `\KernelObjects` for that reason (`wine/internal_lock.h`; see the audit below).
+- **Only `\BaseNamedObjects` is forwarded.** Every other directory (`\Sessions\N\...` with `WineObjects`,
+  `\KernelObjects`, `\NLS`, `\KnownDlls*`, `\Device`, `\??`, window stations) is never forwarded and stays each
+  server's own. Wine's internal locks live in `\Sessions\<session>\WineObjects` for that reason
+  (`wine/internal_lock.h`; see the audit below).
 - Types: event, mutex, semaphore (M2) and anonymous sections (M4). Other types named in the global directory
   (waitable timers, jobs, symbolic links, anything else) **stay local to the caller's server, as today**, with a
   FIXME: refusing them would break what works within one session now.
@@ -275,16 +276,23 @@ session 0 keep stock behaviour.
    - link loss while the peer's epoch lives: references survive the relink;
    - a release sent twice; a frame at the 64 KiB limit; each cap;
    - a session 0 restart.
-   Before X1: the audit of Wine's own names in `\BaseNamedObjects` (below) and its moves.
-2. **X1: M1 and M2 for events**, global-only waits. Not the Edge installer's fix (open question 1 is answered: B108
-   is process visibility, not a `Global\` wait); see "Order: a proposal" below. Tests: a service in session
-   0 and a program in a session share `Global\` events both ways; `Local\` stays per session; access checks with a
-   standard user and a denied descriptor; `PulseEvent` and auto-reset across servers.
-3. **X2: mutexes and semaphores**, ownership and abandonment across servers; then mixed wait-any; mixed wait-all
-   refused.
-4. **X3: M3 waits and queries.** B76's lab then checks Click-to-Run in session 0 (it also needs X4).
-5. **X4: M3 memory reads and the process token towards session 0.**
-6. **X5: M4 sections.**
+2. **The moves of Wine's internal locks** to `\Sessions\<session>\WineObjects` (the audit below; Wine
+   `claude/internal-locks-kernelobjects`), with their Wine tests. Independent of M1.
+3. **X3: M3 waits and queries.** B76's `c2r-split` lab then checks Click-to-Run in session 0 (it also needs X4).
+4. **X4: M3 memory reads and the process token towards session 0.** B108 (Edge run by the user) is retested after it.
+5. **X1: M1 and M2 for events**, global-only waits. **Gate: step 2 has landed** (the moves land before or with M1,
+   never after). Not the Edge installer's fix (open question 1 is answered: B108 is process visibility, not a
+   `Global\` wait). Tests: a service in session 0 and a program in a session share `Global\` events both ways;
+   `Local\` stays per session; access checks with a standard user and a denied descriptor; `PulseEvent` and auto-reset
+   across servers; session 0's policy writer creates userenv's five `Global\` objects before any session links (a
+   session that created one first, with its own descriptor, is refused or the object recreated: the test fails
+   otherwise).
+6. **X2: mutexes and semaphores**, ownership and abandonment across servers; then mixed wait-any; mixed wait-all
+   refused. userenv's machine policy mutex is its in-tree test.
+7. **X5: M4 sections.**
+
+The order after X0 was decided on 2026-11-26 by the reviewer and the orchestrator ("Order: a proposal" below): X3 and
+X4 have a failing case (B76), X1 has none today.
 
 ## Audit: Wine's own names in `\BaseNamedObjects` (before X1)
 
@@ -328,7 +336,8 @@ C), hence the rule below.
 | `Global\userenv: Machine Policy Foreground Done Event` | event | opened with `SYNCHRONIZE` | |
 
 Keep. A session that creates one of them before session 0 does owns it with its own descriptor, so session 0's
-policy writer must create them at its start, before sessions link (an X1 test). WineExplorer's policy notification
+policy writer must create them at its start, before sessions link (an X1 test that fails if a session got there
+first). WineExplorer's policy notification
 does not depend on them: it crosses servers through the registry serial (`gp_watch`, the machine registry is session
 0's).
 
@@ -341,26 +350,33 @@ does not depend on them: it crosses servers through the registry serial (`gp_wat
 | table A's three | mutex | | font: every GUI process | infinite waits at start (font), AppContainer registration fails | private |
 | `__WINE_SXS_CACHE_MUTEX__`, `__WINE_FUSION_CACHE_MUTEX__` | mutex | `dlls/sxs/cache.c`, `dlls/fusion/asmcache.c` | installers (msi in session 0) | machine installs that touch the assembly caches stall | private |
 | `__WINE_WINSPOOL_MUTEX__` | mutex, created owned | `dlls/winspool.drv/info.c` | services that print or list printers | printer initialisation stalls | private |
-| `crypt32_root_semaphore` | semaphore, count 0 | `dlls/crypt32/rootstore.c` | anything that checks a certificate (msi, wexappx, TLS) | a session that creates it first and never releases it stalls every certificate check in session 0 (infinite wait) | private |
+| `crypt32_root_semaphore` | semaphore, count 0 | `dlls/crypt32/rootstore.c` | anything that checks a certificate (msi, wexappx, TLS) | a session that creates it first and never releases it stalls every certificate check in session 0 (infinite wait); without M1 too, a first creator that dies before it releases hangs every later one | private, and a mutex (abandoned, so the waiters wake) |
 | `PowerProfileRegistrySemaphore` | semaphore | `dlls/powrprof/powrprof.c` | rare | power profile reads stall | private |
 | `__wine_dinput_reg_mutex` | mutex | `dlls/dinput/joystick_hid.c` | unlikely | | private |
 | `winemenubuilder_semaphore` | semaphore | `programs/winemenubuilder` | when an install in session 0 makes shortcuts | | private |
 | `__wine_clipboard_<winstation>`, `__wine_display_settings_restorer_mutex` | mutex, held | `programs/explorer/desktop.c` | if explorer runs there | session 0's clipboard or display restorer never starts | private |
-| `DBWinMutex`, `DBWIN_BUFFER` (section), `DBWIN_BUFFER_READY`, `DBWIN_DATA_READY` | | `dlls/kernelbase/debug.c`, `dlls/kernel32/debugger.c` | every `OutputDebugString` | a session's debug monitor sees session 0's debug output, as on Windows (the Windows 11 host has `DBWinMutex` in `\BaseNamedObjects`); creating the section from a session needs `SeCreateGlobalPrivilege` (M1) | keep |
+| `DBWinMutex`, `DBWIN_BUFFER` (section), `DBWIN_BUFFER_READY`, `DBWIN_DATA_READY` | | `dlls/kernelbase/debug.c`, `dlls/kernel32/debugger.c` | every `OutputDebugString` | a session's debug monitor sees session 0's debug output, as on Windows (the Windows 11 host has `DBWinMutex` in `\BaseNamedObjects`); creating the section from a session needs `SeCreateGlobalPrivilege` (M1). A session can create or hold `Global\DBWinMutex` (a mutex needs no privilege), and `OutputDebugString` waits on it without a timeout (`kernelbase/debug.c`), but only once `DBWIN_BUFFER` and both events exist, so only while a session 0 debug monitor runs, as on Windows | keep |
 | wininet's cache mutexes and `index.dat` mappings, mshtml's storage mutex | | `dlls/wininet/urlcache.c`, `dlls/mshtml/htmlstorage.c` | services using wininet | names come from the profile path (SYSTEM's or a service account's); a held mutex stalls that cache; the mappings are sections, so `SeCreateGlobalPrivilege` again | keep (Windows' exposure) |
 | D3DKMT shared names (`\Sessions\%u\...`), DWM's `Local\__wex_dwm_*` | | `dlls/win32u/vulkan.c`, `dlls/d3d11`, `dlls/dxgi`, `include/wine/dwm_protocol.h` | only if graphics or the compositor run there | shared between the session's own processes by design | keep |
 
-**The rule proposed for "private":** Wine's internal locks are created in a directory of their own server that M1
-never forwards, instead of the session's `BaseNamedObjects`. Candidates: `\KernelObjects\` (exists in every server,
-Wine already creates `__wineboot_event` there from ordinary processes), or a new `\Sessions\N\WineObjects` made by
-`create_session`. Either gives the same scope as today in every case (one server per logon under WineExplorer, one
-server in a plain prefix) and none in session 0's global directory. Each move is a few lines (a `Create*W` call
-becomes `NtCreate*` with the absolute name, or the path string changes), about thirteen call sites, each listed in
-`STOCK_CHANGES.md` when it lands. Locks that guard machine state (assembly caches, printers, the root certificate
+**The rule for "private" (decided 2026-11-26, the reviewer's choice):** Wine's internal locks are created in
+`\Sessions\<the PEB's session>\WineObjects`, a directory `create_session` makes in every session next to
+`BaseNamedObjects` (NULL descriptor, like its siblings; for session 0 too, where it is a real directory and not
+linked into `\BaseNamedObjects`), and that M1 never forwards. Each lock keeps the scope it had: the unprefixed names
+and `display_device_init` were per session; table A's three were per server, the same while a server holds one user
+session (`create_session` runs for 0 and `default_session_id` only, `server/directory.c`). `\KernelObjects` was
+considered and not taken: user processes can create there only because Wine gives it a NULL descriptor (users cannot
+on Windows), and it is per server, which would merge per-session locks in a server with two user sessions. Every site
+goes through one definition, `include/wine/internal_lock.h` (a format for the Unix side, helpers for PE code); about
+thirteen call sites, each listed in `STOCK_CHANGES.md`.
+
+AppContainer processes: Wine has no `AppContainerNamedObjects` redirect today, so an AppContainer process reaches
+these locks as it reached them in `BaseNamedObjects` (no change). When a redirect comes, `WineObjects` is denied to
+AppContainers with the rest of the session's namespace. Locks that guard machine state (assembly caches, printers, the root certificate
 import) are per server today too, so a session and session 0 do not exclude each other there; making them global
 would need session 0 to create them first and is not proposed now.
 
-The moves are independent of M1 and can land before X1, whatever the order below.
+The moves are independent of M1 and land before X1 or with it, never after (X1's gate in "Order of work").
 
 **Rejected:** forwarding all of `\BaseNamedObjects` except names that start with `__wine` (guesswork, and misses
 `display_device_init` and the others); giving session 0 a local namespace apart from `\BaseNamedObjects` (breaks
@@ -368,7 +384,7 @@ services that create `Name` unprefixed for clients that open `Global\Name`, a co
 
 ## Order: a proposal
 
-For the reviewer and the orchestrator to decide.
+Agreed by the reviewer and the orchestrator on 2026-11-26 and written into "Order of work" above; the reasons:
 
 - **X1 has no failing case today.** WineExplorer's policy notification already crosses servers (registry serial),
   nothing creates the refresh events, and the one userenv object that is split per server today is a mutex (X2). P1
@@ -379,7 +395,8 @@ For the reviewer and the orchestrator to decide.
   (the chain runs as the elevated user, where Windows runs it as SYSTEM), and Omaha's `CanUninstallGoogleUpdate` may
   need the identity, not only visibility.
 - **B108 has a candidate outside this design:** run msi's deferred custom actions without impersonation as SYSTEM in
-  session 0, the way B108 measured to work (the components' way). That is an msi and system tier item.
+  session 0, the way B108 measured to work (the components' way). That is an msi and system tier item, written up in
+  `MSI_NOIMPERSONATE_SYSTEM.md`.
 - **Proposal:** the audit's moves now; then X3 and X4 (B76's lab, B108 retested after X4); then X1 and X2 with the
   GPO objects as their tests; X5 last. Keeping X1 first costs nothing in design (M1 and M3 are independent) but
   delays the step with a failing case.
