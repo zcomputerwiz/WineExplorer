@@ -4449,7 +4449,9 @@ fi
 # custom actions without impersonation run as SYSTEM in session 0 (WexMsiServer's host), an impersonated one with the
 # full token; only an elevated per-machine install gets the host; a per-user MSI does not elevate
 if section c7_msi; then set +e; ( section_enter
-if command -v wixl >/dev/null && command -v msibuild >/dev/null; then
+# a missing test tool is a SKIP with its reason, never a PASS (wexbuild had no wixl, and c7_msi "passed" in 1 s)
+command -v wixl >/dev/null || section_skip "no wixl (Debian package wixl)"
+command -v msibuild >/dev/null || section_skip "no msibuild (Debian package msitools)"
 echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
 echo hello > "$MS/hello.txt"; cp "$ROOT/probes/wexelevate_probe32.exe" "$MS/act.exe"
@@ -4585,9 +4587,6 @@ msi_case c7_msi_per_user_install_does_not_elevate peruser none 1627
 [ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "the per-user MSI asked for consent"
 ok c7_msi_per_user_install_does_not_elevate_and_asks_nothing
 el_down "$ADM"
-else
-echo "NOTE: wixl or msibuild missing, the MSI checks were not run"
-fi
 true; ); section_leave $?; fi
 
 # -- the S2, S3 and S4 assertions that waited for the broker, as far as this fixture can run them: an administrator's own
