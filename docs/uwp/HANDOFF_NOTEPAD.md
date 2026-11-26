@@ -317,6 +317,10 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
           `InputHost` anywhere in the tree. Once the rounds go on, the input thread will ask for them and fail. Factory interfaces
           Notepad asks for on Windows: InputSite {73f80911-7a51-5b0f-906b-f6402ea6c3cb}, ActivationConfigurationInputObject
           {4c8421ca-3863-5236-b09a-757cf68c5fa5}, `Windows.System.DispatcherQueue` {a96d83d7-9371-4517-9245-d0824ac12c74}.
+          Measured 2026-11-26, see [DESIGN_INPUTSITE.md](DESIGN_INPUTSITE.md): those requests come from the system's own
+          component (and the DispatcherQueue one from inside `InputHost.dll`); under Wine the application's copy asks for
+          `{8ca0442d}`, which this Windows build refuses, so the next step is the logging stand-in
+          (`tests/uwp/alpc/inputhost-logstub.c`) in the lab prefix once the rounds run.
        3. *System CoreUI session is a semi-stub.* FrameworkUdk calls `CoreMessaging.dll!CoreUICreate` on the UI thread (603.347);
           Wine's builtin answers session slots 8, 12, 3 and a generic interface {37a94c05-1aa6-4cea-9049-083bba055cec} slot 5,
           and drops the handler registration of slot 12 (a runtime function and a context). Windows creates a
