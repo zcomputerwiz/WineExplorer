@@ -115,7 +115,8 @@
 #                account) a soft shadow: the Start menu (the Windows key), the desktop's context menu (a right
 #                click) and the tooltip of the clock (the pointer rests on it). Each is a subresult; the popup is the new viewable window after the action (the window
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
-#                named, or in the chain's default stages.
+#                named, or in the chain's default stages. With composition on the Start menu and the context menu must have
+#                their shadow (popup-check.py strict); the tooltip's missing shadow stays a note (it sits at the taskbar's edge).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -2277,8 +2278,9 @@ phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header. Each va
 }
 
 popup_windows() { session_probe "$USER_NAME" 60 "--windows"; }   # the window probe's list of the test account's X windows
-popup_one() {   # popup_one NAME ACTION CLOSE_KEY: ACTION (a function) opens a popup; the new window is checked; CLOSE_KEY closes it
-    local name=$1 action=$2 key=$3
+popup_one() {   # popup_one NAME ACTION CLOSE_KEY [strict]: ACTION (a function) opens a popup; the new window is checked;
+                # CLOSE_KEY closes it. strict: with composition on, a missing shadow fails (otherwise a note)
+    local name=$1 action=$2 key=$3 strict=${4:-}
     popup_windows > "$OUT/popups-$name-before.txt"
     [ -s "$OUT/popups-$name-before.txt" ] || fail "the window probe gave no list (an image without xwininfo, or a Wayland session)"
     "$action" || fail "$name: the action failed"
@@ -2287,7 +2289,7 @@ popup_one() {   # popup_one NAME ACTION CLOSE_KEY: ACTION (a function) opens a p
     "${V[@]}" shot "$TEST" >/dev/null 2>&1 || fail "$name: no screenshot"
     shot "$name"
     python3 "$HERE/popup-check.py" "$OUT/popups-$name-before.txt" "$OUT/popups-$name-after.txt" "$STATE/screen.ppm" \
-        "$POPUP_COMPOSITION" | tee "$OUT/popups-$name.txt"
+        "$POPUP_COMPOSITION" ${strict:+strict} | tee "$OUT/popups-$name.txt"
     local rc=${PIPESTATUS[0]}
     "${V[@]}" key "$TEST" "$key" >/dev/null   # closes it, also after a failed check: the next starts from the desktop
     sleep 1
@@ -2313,8 +2315,10 @@ phase_popups() {   # see the header: the shell's popups have no black box, and a
     POPUP_COMPOSITION=$(gsh 'grep -c "^\"Composition\"=dword:00000001" "$HOME/.wine/user.reg" 2>/dev/null; true' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
     [ "${POPUP_COMPOSITION:-0}" -ge 1 ] 2>/dev/null && POPUP_COMPOSITION=1 || POPUP_COMPOSITION=0
     echo "  guest desktop composition: $POPUP_COMPOSITION"
-    subresult start-menu popup_one start-menu popup_start_menu esc
-    subresult context-menu popup_one context-menu popup_context_menu esc
+    # the Start menu and the context menu must have their shadow with composition on (b1140b uefi: bottom and right);
+    # the tooltip stays a note: it sits over the taskbar's edge, where the 2 px sample is another surface than the reference
+    subresult start-menu popup_one start-menu popup_start_menu esc strict
+    subresult context-menu popup_one context-menu popup_context_menu esc strict
     subresult tooltip popup_one tooltip popup_tooltip esc
     shutdown_vm
     subresults_end
