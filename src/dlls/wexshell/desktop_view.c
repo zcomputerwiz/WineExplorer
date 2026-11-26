@@ -1313,7 +1313,7 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
 
     /* Wine cannot focus a child directly under its special desktop window. */
     g_desktop_view.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, DESKTOP_VIEW_CLASS, NULL,
-                                          WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                                          WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                           0, 0, width, height,
                                           parent_desktop, NULL, wc.hInstance, NULL);
 
@@ -1334,6 +1334,9 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
         shell_restrictions_watch(g_desktop_view.hwnd, WM_WEX_POLICY);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        /* shown without activation: a restarted shell must not take the activation (the keyboard focus) from the
+         * programs that ran across the restart (B124) */
+        ShowWindow(g_desktop_view.hwnd, SW_SHOWNA);
     }
 
     desktop_view_refresh();
