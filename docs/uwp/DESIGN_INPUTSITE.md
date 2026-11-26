@@ -25,6 +25,19 @@ still unknown. Nothing is implemented in Wine yet.
 * Next step: the Wine module with the Windows 10 interface ids (below), and a run of Notepad in the lab, with the logging
   stand-in (`tests/uwp/alpc/inputhost-logstub.c`) for any call that is not covered yet.
 
+## State (2026-11-26, later)
+
+The module exists: Wine branch `claude/inputhost` (08192783), pinned and listed on WineExplorer branch
+`claude/inputhost-pin`. Its test passes on Windows 10 and 11 (32 and 64 bit) and under Wine (x86_64 in the lab tree; the
+i386 run there found the classes unregistered in the 32-bit view of a prefix that was not updated, which is to be checked
+in a normally updated prefix). Lab run b41 of Notepad with it (and the lab's CoreMessaging re-arm diagnostic): the input
+thread asks for `IActivationFactory` and `{8ca0442d}`, creates three sites (its host answers `{92179cc0}` slot 9 with
+three sink handles), asks each site for `IUnknown` and `{f77d91d0}`, creates a configuration object per site and writes 0
+to both settings. Nothing else is asked of either object, and there is no fail fast any more. The page still does not
+load: the CoreMessaging rounds stop again afterwards. On Windows the system's library makes a system CoreMessaging
+registration on the input thread at this point (it activates `Windows.System.DispatcherQueue` itself); whether Wine's
+module has to do the same is the open question (unknown 4 below).
+
 ## Rules followed
 
 Black box only: exported calls and calls at COM interface boundaries, with their arguments and results. No disassembly, no
