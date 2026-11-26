@@ -159,6 +159,17 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          has no library: `err:combase:RoGetActivationFactory`), many `IPropertyValue` interfaces refused (`property_value_QueryInterface`,
          ~300 times), `Windows.UI.ViewManagement.UISettings` and `ApplicationLanguages` semi-stubs. Next: on Windows record which
          WinRT classes/methods precede the 0x5fc post on the UI thread (wintrace `winrt!Class@{IID}[N]` targets) and compare with Wine.
+     - **WinRT activations compared (2026-11-26; wintrace `combase!RoGetActivationFactory:..._H` on Windows, the Wine log).** Windows 11's UI
+       thread activates 87 distinct classes before it posts 0x5fc; Wine activated 66 and the activation of
+       `Windows.Security.EnterpriseData.ProtectionPolicyManager` failed (no library): that was the first missing class and the UI thread
+       ended its start-up there. The Wine module `windows.security.enterprisedata` (STOCK_CHANGES) now serves it (Wine `b364b217`, test
+       identical on Windows 11 and Wine). Notepad then goes on exactly as on Windows up to `UserActivityRequestManager`. (The
+       `...PrivatePT` name is activated by Windows' own implementation of `add_PolicyChanged`, not by Notepad; Wine's Notepad never asks
+       for it, which is right.) Still missing after that point: the UI thread's template work (`TabViewListView`, `TabViewItem`,
+       `ToolTip`, `VisualStateManager`, `KeyboardAccelerator`, `DataTemplate`, `VisualTreeHelper`) and, on the edit thread, the text-input
+       classes `Windows.UI.Internal.Input.InputSite`, `ActivationConfigurationInputObject`, `Windows.System.DispatcherQueue` (three times)
+       and `Windows.Globalization.Spelling.Internal.Facility`. The edit thread's RichEdit is Wine's, which never asks for them: they are
+       the next candidates (the Windows RichEdit starts its text input services there, then the UI thread's first layout pass runs).
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.

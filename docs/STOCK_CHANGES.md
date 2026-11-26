@@ -1,5 +1,18 @@
 # Changes to stock Wine / third-party code
 
+## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
+
+* New module `dlls/windows.security.enterprisedata` (a registered WinRT activation DLL, like windows.security.authentication.onlineid) with
+  the class `Windows.Security.EnterpriseData.ProtectionPolicyManager` and the second name `...ProtectionPolicyManagerPrivatePT` that Windows
+  serves from the same statics (Statics and Statics2 only, partial trust; the policy-state queries answer ERROR_NOT_SUPPORTED there).
+  A machine without enterprise data protection: no identity managed, nothing protected, every access allowed (values measured on
+  Windows 11 with a probe; `tests/enterprisedata.c` passes on Windows 11 and in Wine, x86_64 and i386).
+* `include/windows.security.enterprisedata.idl`: the statics, the instance interfaces, the enums. Parameters that name classes not defined
+  there yet (audit info, network context, storage items) are `IInspectable *` (same layout).
+* `configure.ac` and `configure`: the module and its tests directory (three lines each, by hand: autoconf 2.72 would rewrite the file).
+* Why: the Windows App SDK based Notepad activates the class while it builds its status bar and stops initialising when the activation
+  fails ("Failed to find library").
+
 ## services, sechost: SERVICE_CONFIG_FAILURE_ACTIONS (B105, 2026-11-25)
 
 Wine branch `claude/b105-failure-actions` (9a0dd03a). Stock Wine accepted `ChangeServiceConfig2W(FAILURE_ACTIONS)`
