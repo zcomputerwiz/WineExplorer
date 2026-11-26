@@ -2548,6 +2548,11 @@ if ! getent passwd wexhidden >/dev/null; then
     useradd --create-home --comment 'Hidden Test' wexhidden && passwd -d wexhidden >/dev/null
 fi
 echo "wexhidden=$?"
+# wexhidden's empty field must already be in nopasswdlogin when this image is snapshotted: left to the boot-time reconcile,
+# the first boot of a phase writes /etc/group and /etc/gshadow and "the boot changed files under /etc" (batch 1147)
+if [ -x /usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile ]; then
+    /usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile; echo "blankreconcile=$?"
+fi
 mkdir -p /var/lib/AccountsService/users
 printf '[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n' > /var/lib/AccountsService/users/wexhidden
 if [ ! -e /var/lib/lightdm/.wine ] && [ -d /var/lib/lightdm/.wine-logon ]; then
