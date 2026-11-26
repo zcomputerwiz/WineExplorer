@@ -226,9 +226,45 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          private completion port and the cancel/re-associate packet sequence only when the answer is 0 (as on Windows, where a new
          thread is not a GUI thread until its first win32k call; `guithread-probe.c`). Wine's stub returned TRUE, so it took another
          path. Implemented; the input and UI threads now take the Windows path (b35). The stall is unchanged: still one wake.
-       * Next: what makes Windows' input thread re-associate after the (1) wake. Under the rule, compare the calls of the (1) handler
-         on Windows and Wine (both now on the same set-up path): return values of the drain call and of the work it runs, and the
-         stack arguments of `NtAssociateWaitCompletionPacket` (which packet, which port, `AlreadySignaled`).
+       * Next (done below): what makes Windows' input thread re-associate after the (1) wake.
+     - **The input thread's single wake is a consequence, not the gate; Wine stops before the text input set-up (2026-11-26, later;
+       Windows `wt-drain`, `wt-drainq`, `wt-h1`, `wt-timer`, `wt-sink`, `wt-tif`; lab b35; exported calls only).**
+       * Tooling first: `wintrace.c` had two faults that the earlier Notepad traces hit. With `WINTRACE_WATCH` (Notepad restarts
+         itself) the first process kept its breakpoints and its traps were handled against the second one, so calls of the real
+         process were lost and threads looped on stale breakpoints. Separately, a return breakpoint (`R`) reached first by another
+         thread made that thread run one byte off and crashed Notepad (0xc000041d). Both are fixed (the first process's breakpoints
+         are taken out; a foreign thread steps over a return breakpoint). New label suffix `_Q`: the 4 qwords behind rdx/r8/r9 at entry
+         and at return. Conclusions drawn from earlier `exe:` traces of ntdll calls should be re-checked with the fixed tracer.
+       * The (1) handler is the same on both sides. Windows: `ResetEvent(first event)`, `Drain2(hwnd, buf, buf+8, stack)` -> 1,
+         `RtlInterlockedFlushSList` -> a work list, `PostMessageW(hwnd, 0x60, 5, 4)`, flush, push, `SetEvent` of the UI thread's event,
+         **no re-association**; Wine: the same calls in the same order. Drain2 writes nothing to any of its three buffers on Windows
+         either (4 qwords each, before and after: identical), so its output cannot steer anything. In later rounds Windows calls
+         drain, then `NtAssociateWaitCompletionPacket(first packet, Init2 port, first event, key)`, then flush (empty).
+       * Windows' later wakes are not completions out of nothing: the UI thread signals the input thread's event through a
+         **duplicate handle** about every 300 ms (`NtSetEvent` from `CoreMessagingXP`, with XAML, dcomp, dxgi, gdi32 on the stack),
+         i.e. whenever the UI thread queues work for the input thread. Under Wine the UI thread signals it once (275.049) and then
+         has nothing more to send, because it stops (below). The second packet of the input thread targets a waitable timer
+         (`CreateWaitableTimerExW`) that nobody sets, on Windows or Wine. A window timer on a registered window stays an ordinary
+         `WM_TIMER` on Windows (`cmtimer-probe.c`), so it is not a hidden wake source either.
+       * Where Wine stops instead (activations, windows, loads; Windows run `wt-sink`/`wt-tif` vs b34/b35): Wine reaches the same
+         classes up to `NotepadXamlUI.TabData` and `UserActivityRequestManager`, the three `InputSiteWindowClass` windows of the UI
+         thread, the three `MITMessageOnlyWindowClass` windows of the input thread (each with `NtCreateCompositionInputSink` and
+         `DelegateInput`, as on Windows), and the edit thread with `NotepadTextBox` and `RichEditD2DPT`. Windows then: during
+         `Microsoft.UI.Text.FontWeights` the UI thread loads `WinUIEdit.dll`; `msctf.dll` creates `CicMarshalWndClass` and loads
+         `TextInputFramework.dll` on the UI thread and creates the `MSCTF...` IME window; the edit thread starts and creates its
+         windows and its system CoreMessaging window (`SystemUserAdapterWindowClass` + Init2); about 0.4 s after the edit thread starts,
+         the input thread activates `Windows.UI.Internal.Input.InputSite` (loads `InputHost.dll`), then the UI thread's
+         `PropertyValue`/`Uri` and the TabView templates follow. Under Wine `WinUIEdit.dll` loads (276.016) and the UI thread makes
+         no further library, COM or activation call; there is no `CicMarshalWndClass`, no `TextInputFramework`, no
+         `SystemUserAdapterWindowClass` anywhere, no InputSite. No COM creation and no `TF_*` export is involved in that Windows
+         step (`CoCreateInstance`, `TF_CreateThreadMgr`, `TF_GetThreadMgr` traced: none on the UI thread there).
+       * Next: what the UI thread is doing after `WinUIEdit.dll` loads under Wine (its last calls and where it blocks; +relay with
+         msctf/imm32/user32 hooks visible), and on Windows which exported call of the UI thread precedes `CicMarshalWndClass`
+         (msctf's thread activation: `ImmGetDefaultIMEWnd`, `CtfImmIsTextFrameServiceDisabled`, `ITfThreadMgr` creation by
+         `msctf!TF_*` or a window hook). The missing system CoreMessaging instance (`SystemUserAdapterWindowClass`, which Windows
+         creates on the UI, input and edit threads) is the other candidate.
+       * Open on the RichEdit side (batch 1145 check): `EM_SETEDITSTYLE(0xe14018)` returns 0xe14018 under Wine and 0xe04018 on
+         Windows (bit 0x10000); the native control decides that from its environment. Not caused by the loader rule.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.

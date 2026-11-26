@@ -28,7 +28,10 @@
  *                                module instance that this program creates (from a one-line library of its own)
  * For the last six, only calls on an object with that vtable are counted (the slots may share code with other objects).
  * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return), _K (the fifth to eighth arguments, from the stack) or _F (the low float and double of
- * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
+ * xmm0 to xmm3) or _Q (the 4 qwords that rdx, r8 and r9 point to, at entry and, with R, at return: a call's out arguments);
+ * the fifth field R logs the return value and what the argument registers point to.
+ * A program that starts a second process (WINTRACE_WATCH) gets its breakpoints there; those of the first process are taken out.
+ * A return breakpoint that another thread reaches first is stepped over and kept for the thread it belongs to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
  */
@@ -52,6 +55,9 @@ static struct bp bps[128];
 static int nbps;
 static struct module mods[1024];
 static int nmods;
+static HANDLE oldproc;   /* the previous debuggee, after a second process attached */
+static DWORD curpid;     /* the debuggee whose breakpoints are set */
+static ULONG_PTR pending_ret[65536];   /* per thread: a return breakpoint of another thread to put back after a single step */
 static FILE *out;
 static DWORD t0;
 static HANDLE proc;
@@ -257,6 +263,18 @@ static void hit(struct bp *b, DWORD tid)
                          d.cls, d.rows, d.cols, d.interp, d.flags, (int)d.in_reg, (int)d.in_comp, (int)d.out_reg, (int)d.out_comp);
             }
         }
+        if (strstr(b->label, "_Q"))   /* _Q: the 4 qwords that rdx, r8 and r9 point to (out arguments), at entry */
+        {
+            ULONG_PTR regs[3] = {ctx.Rdx, ctx.R8, ctx.R9};
+            for (i = 0; i < 3; i++)
+            {
+                ULONG_PTR q[4] = {0};
+                SIZE_T n = 0;
+                if (regs[i] < 0x10000 || !ReadProcessMemory(proc, (void *)regs[i], q, sizeof(q), &n)) continue;
+                log_line("    in a%d %016llx %016llx %016llx %016llx", i + 1, (unsigned long long)q[0], (unsigned long long)q[1],
+                         (unsigned long long)q[2], (unsigned long long)q[3]);
+            }
+        }
         if (strstr(b->label, "_E"))   /* _E: 48 qwords at rdx and r8 */
         {
             dump_mem("rdx in", ctx.Rdx);
@@ -279,7 +297,13 @@ static void hit(struct bp *b, DWORD tid)
 
                 rets[k].used = 1; rets[k].addr = ra; rets[k].tid = tid; rets[k].bp = (int)(b - bps); rets[k].n = b->hits;
                 rets[k].args[0] = ctx.Rcx; rets[k].args[1] = ctx.Rdx; rets[k].args[2] = ctx.R8; rets[k].args[3] = ctx.R9;
-                ReadProcessMemory(proc, (void *)ra, &rets[k].orig, 1, &got);
+                {
+                    /* another thread may wait at the same return address: its saved byte is the original */
+                    int j, shared = 0;
+                    for (j = 0; j < 64; j++)
+                        if (j != k && rets[j].used && rets[j].addr == ra) { rets[k].orig = rets[j].orig; shared = 1; break; }
+                    if (!shared) ReadProcessMemory(proc, (void *)ra, &rets[k].orig, 1, &got);
+                }
                 WriteProcessMemory(proc, (void *)ra, &cc, 1, &got);
                 FlushInstructionCache(proc, (void *)ra, 1);
                 break;
@@ -334,16 +358,31 @@ static int ret_hit(ULONG_PTR a, DWORD tid)
             else
                 log_line("    arg%d %#llx -> %#llx", i, (unsigned long long)p, (unsigned long long)v);
         }
+        if (strstr(bps[rets[k].bp].label, "_Q"))
+            for (i = 1; i < 4; i++)
+            {
+                ULONG_PTR q[4] = {0};
+                SIZE_T n = 0;
+                if (rets[k].args[i] < 0x10000 || !ReadProcessMemory(proc, (void *)rets[k].args[i], q, sizeof(q), &n)) continue;
+                log_line("    out a%d %016llx %016llx %016llx %016llx", i, (unsigned long long)q[0], (unsigned long long)q[1],
+                         (unsigned long long)q[2], (unsigned long long)q[3]);
+            }
         if (strstr(bps[rets[k].bp].label, "_E"))
         {
             dump_mem("rdx out", rets[k].args[1]);
             dump_mem("r8 out", rets[k].args[2]);
         }
-        WriteProcessMemory(proc, (void *)a, &rets[k].orig, 1, &got);
-        FlushInstructionCache(proc, (void *)a, 1);
+        rets[k].used = 0;
+        {
+            /* keep the breakpoint while another thread still waits at this address: this thread steps over it */
+            int j, other = 0;
+            for (j = 0; j < 64; j++) if (rets[j].used && rets[j].addr == a) other = 1;
+            WriteProcessMemory(proc, (void *)a, &rets[k].orig, 1, &got);
+            FlushInstructionCache(proc, (void *)a, 1);
+            if (other) { ctx.EFlags |= 0x100; pending_ret[tid & 0xffff] = a; }
+        }
         ctx.Rip = a;
         if (th) { SetThreadContext(th, &ctx); CloseHandle(th); }
-        rets[k].used = 0;
         return 1;
     }
     return 0;
@@ -753,7 +792,22 @@ int main(int argc, char **argv)
         {
             int k;
 
-            /* a new debuggee (the application may start a second process): its modules and breakpoints are its own */
+            /* a new debuggee (the application may start a second process): its modules and breakpoints are its own; the
+             * breakpoints of the previous one are taken out, and its later traps only put the instruction back */
+            if (proc)
+            {
+                for (k = 0; k < nbps; k++) if (bps[k].active) restore(&bps[k], bps[k].orig);
+                for (k = 0; k < 64; k++)
+                    if (rets[k].used)
+                    {
+                        SIZE_T got;
+                        WriteProcessMemory(proc, (void *)rets[k].addr, &rets[k].orig, 1, &got);
+                        FlushInstructionCache(proc, (void *)rets[k].addr, 1);
+                        rets[k].used = 0;
+                    }
+                oldproc = proc;
+            }
+            curpid = ev.dwProcessId;
             nmods = 0;
             for (k = 0; k < nbps; k++) bps[k].active = 0;
             log_line("process %lu attached", (unsigned long)ev.dwProcessId);
@@ -770,9 +824,79 @@ int main(int argc, char **argv)
             DWORD code = ev.u.Exception.ExceptionRecord.ExceptionCode;
             int k, found = 0;
 
+            if (curpid && ev.dwProcessId != curpid)
+            {
+                /* an earlier debuggee: a trap that was already queued when its breakpoints were taken out runs the
+                 * instruction again; a pending single step only ends */
+                if (code == EXCEPTION_BREAKPOINT)
+                {
+                    BYTE cur = 0;
+                    SIZE_T got;
+                    HANDLE th;
+
+                    if (oldproc && ReadProcessMemory(oldproc, (void *)a, &cur, 1, &got) && cur != 0xcc
+                            && (th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, ev.dwThreadId)))
+                    {
+                        CONTEXT ctx;
+                        memset(&ctx, 0, sizeof(ctx));
+                        ctx.ContextFlags = CONTEXT_FULL;
+                        if (GetThreadContext(th, &ctx)) { ctx.Rip = a; SetThreadContext(th, &ctx); }
+                        CloseHandle(th);
+                        ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE);
+                        continue;
+                    }
+                }
+                else if (code == EXCEPTION_SINGLE_STEP && pending[ev.dwThreadId & 0xffff])
+                {
+                    pending[ev.dwThreadId & 0xffff] = 0;
+                    ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE);
+                    continue;
+                }
+            }
+            if (code == EXCEPTION_SINGLE_STEP && pending_ret[ev.dwThreadId & 0xffff])
+            {
+                /* a thread stepped over the return breakpoint of another thread: put it back if that one is still waiting */
+                ULONG_PTR ra = pending_ret[ev.dwThreadId & 0xffff];
+                BYTE cc = 0xcc;
+                SIZE_T got;
+
+                pending_ret[ev.dwThreadId & 0xffff] = 0;
+                for (k = 0; k < 64; k++)
+                    if (rets[k].used && rets[k].addr == ra)
+                    {
+                        WriteProcessMemory(proc, (void *)ra, &cc, 1, &got);
+                        FlushInstructionCache(proc, (void *)ra, 1);
+                        break;
+                    }
+                ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE);
+                continue;
+            }
             if (code == EXCEPTION_BREAKPOINT)
             {
                 if (ret_hit(a, ev.dwThreadId)) found = 1;
+                for (k = 0; k < 64 && !found; k++)
+                    if (rets[k].used && rets[k].addr == a)
+                    {
+                        /* the return breakpoint of another thread: run the instruction once with the original byte, step */
+                        HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, ev.dwThreadId);
+                        SIZE_T got;
+
+                        if (th)
+                        {
+                            CONTEXT ctx;
+                            memset(&ctx, 0, sizeof(ctx));
+                            ctx.ContextFlags = CONTEXT_FULL;
+                            GetThreadContext(th, &ctx);
+                            WriteProcessMemory(proc, (void *)a, &rets[k].orig, 1, &got);
+                            FlushInstructionCache(proc, (void *)a, 1);
+                            ctx.Rip = a;
+                            ctx.EFlags |= 0x100;
+                            SetThreadContext(th, &ctx);
+                            CloseHandle(th);
+                            pending_ret[ev.dwThreadId & 0xffff] = a;
+                        }
+                        found = 1;
+                    }
                 for (k = 0; k < nbps && !found; k++)
                     if (bps[k].active && bps[k].addr == a) { hit(&bps[k], ev.dwThreadId); found = 1; break; }
             }
