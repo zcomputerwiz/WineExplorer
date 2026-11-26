@@ -121,6 +121,9 @@
 #                there again; the desktop's context menu then has no black box around it and, with composition on, its
 #                shadow. In the X11 session the programs' windows are lost with explorer's X desktop window (virtual
 #                desktop); only the Wayland session keeps them. Only when named, or in the chain's default stages.
+#   waylandshellrestart  shellrestart in the Wayland session (B120): Notepad is open (Run), the shell's explorer is killed
+#                (kill -9), the supervisor starts it again, and the desktop is back; Notepad is still running and still
+#                opens a dialog (Ctrl+O), as on XP, where the programs survive the shell. Only when named.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -192,7 +195,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -1470,6 +1473,38 @@ phase_waylandshellkeys() {   # the same in the Wayland session (wexcomp v15 and 
     sleep 2
     shell_keys_check xwayland
     lock_check
+    expect_compositor
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
+phase_waylandshellrestart() {   # see the header: Notepad survives the shell's restart in the Wayland session
+    local old new
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_text "Type the name" 20 || { shot no-run; fail "Win+R did not open Run"; }
+    "${V[@]}" type "$TEST" "notepad"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "Untitled - Notepad" 60 || { shot no-notepad; fail "Notepad did not open"; }
+    old=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /shell" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$old" ] || fail "no explorer of $USER_NAME to kill"
+    gsh 'pkill -9 -u "$USER" -f "C:.windows.system32.explorer.exe /shell"; true' >/dev/null
+    sleep 5
+    desktop 120 || fail "the shell did not come back after kill -9 (the supervisor's restart)"
+    new=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /shell" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$new" ] && [ "$new" != "$old" ] || fail "no new explorer after the restart (old $old, new ${new:-none})"
+    echo "  explorer $old killed, now $new"
+    gsh 'pgrep -u "$USER" -f "notepad.exe" >/dev/null && echo notepad=running' | grep -q '^notepad=running' ||
+        fail "Notepad ended with the shell"
+    wait_text "Untitled - Notepad" 20 || { shot notepad-gone; fail "Notepad's window is gone after the shell's restart"; }
+    "${V[@]}" key "$TEST" ctrl-o >/dev/null
+    wait_text "Open" 30 || { shot no-dialog; fail "Notepad opens no dialog after the shell's restart"; }
+    shot notepad-dialog
+    "${V[@]}" key "$TEST" esc >/dev/null
     expect_compositor
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"

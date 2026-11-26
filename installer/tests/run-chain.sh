@@ -50,6 +50,7 @@ phases_of() {   # the safe-mode.sh phases of a stage; nothing for the defaults
         defaults) ;;
         accounts|classic|rundialog|popups|startrec|shellrestart) echo "$1" ;;
         wayland) echo waylanddisplay waylandsafe waylandcmd ;;
+        waylandrestart) echo waylandshellrestart ;;
         *=*) echo "${1#*=}" | tr ',' ' ' ;;
         *) return 1 ;;
     esac
