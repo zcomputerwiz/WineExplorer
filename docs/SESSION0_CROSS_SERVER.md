@@ -118,6 +118,9 @@ Everything below uses one protocol on the session link, built first.
   Every alias that resolves into it is rebound, not only `Global`. `\Sessions\N\BaseNamedObjects` stays in the
   session's server, so `Local\` and unprefixed names (`BaseGetNamedObjectDirectory`, the PEB's session) stay local, as
   on Windows.
+- **Only `\BaseNamedObjects` is forwarded.** `\KernelObjects` and every other directory (`\NLS`, `\KnownDlls*`,
+  `\Device`, `\??`, `\Sessions\N\...`, window stations) are never forwarded and stay each server's own. Wine's
+  internal locks live in `\KernelObjects` for that reason (`wine/internal_lock.h`; see the audit below).
 - Types: event, mutex, semaphore (M2) and anonymous sections (M4). Other types named in the global directory
   (waitable timers, jobs, symbolic links, anything else) **stay local to the caller's server, as today**, with a
   FIXME: refusing them would break what works within one session now.
