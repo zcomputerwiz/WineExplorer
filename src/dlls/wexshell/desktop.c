@@ -70,7 +70,8 @@ static DWORD WINAPI class_shadow_proc( void *arg )
     struct class_shadow *job = arg;
     int tries;
 
-    for (tries = 0; tries < 10 && IsWindow( job->hwnd ); tries++)
+    /* only a show is repeated, and only while the window is still shown: a later hide must not be overtaken */
+    for (tries = 0; tries < 10 && IsWindow( job->hwnd ) && IsWindowVisible( job->hwnd ); tries++)
     {
         if (WexWmSetClassShadow( job->hwnd, job->shadow ) != ERROR_NOT_READY) break;
         Sleep( 50 );
@@ -86,6 +87,7 @@ static void class_shadow( HWND hwnd, BOOL shadow )
     HANDLE thread;
 
     if (WexWmSetClassShadow( hwnd, shadow ) != ERROR_NOT_READY) return;
+    if (!shadow) return;   /* a hide of a window without a surface has nothing to remove */
     if (WexWmGetCapabilities( &backend, &capabilities ) || backend != WEX_WM_BACKEND_WAYLAND) return;
     if (!(job = HeapAlloc( GetProcessHeap(), 0, sizeof(*job) ))) return;
     job->hwnd = hwnd;

@@ -151,6 +151,14 @@ way.
    screen's session list follows the account clicked (below), so it no longer shows X11 for a Wayland account.
 5. Done on 2026-11-12: the shell-only protocols are offered on the private socket only (wexcomp `1f8e5d3a`, above).
 6. The 150% scaling items, multi-output frame clock and Mica. (CS_DROPSHADOW: done 2026-11-26, above.)
+   - **Follow-up, open (Orchestrator's parity rule):** the Wayland shadow of menus and tooltips must look like XP's
+     CS_DROPSHADOW, which on X11 is the compositor's 9-slice (`compose.c`: `SHADOW_RADIUS 12`, `SHADOW_OFFSET 4`,
+     `SHADOW_ALPHA 0x59`). wexcomp draws a flagged window's shadow with its own parameters (`wex-window.c`: an analytical
+     Gaussian blur, sigma 24 and alpha 0.22 for the Windows 10/11 style, sigma 8 and alpha 0.35 for Aero; stepped rects
+     without SceneFX). They are not the same, and no side-by-side capture exists yet (only the pixel check of the
+     headless test, which shows a shadow, not its shape). Needs: the same popup on both sessions, captured, and either
+     wexcomp parameters for class-shadow windows that match (a class-shadow flag value, not the frame style) or an
+     owner decision that the Wayland look stays.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
