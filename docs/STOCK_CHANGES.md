@@ -4889,3 +4889,12 @@ integrity process is refused during the gap and a service desktop is not adopted
 composition; and finally a Log Off as msgina's fallback does it (`wineboot --end-session --force`, and the shell ends
 at once), which must end the supervisor with no new shell. Stock Wine has the same code and so, by reading it, the same
 failures; that was not run.
+
+## RegFlushKey saves the key's branch (2026-11-25)
+
+Wine `claude/regflush` (one commit on development): `server/registry.c`, `DECL_HANDLER(flush_key)`. For a key that is
+not in a managed (e1s) hive, the server saves the branch that holds it (`find_branch_info`, `save_branch`, the path the
+periodic and exit saves use) instead of doing nothing. A server that is killed does not run its exit save, so the last
+changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
+flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
+set and flushed is in the prefix's `user.reg`; skipped off Wine).
