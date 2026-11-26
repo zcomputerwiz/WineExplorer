@@ -213,8 +213,21 @@ way.
        (a `group_dropped` flag on the frame), compose the pair at the native client's current size, which puts the native
        view at the frame's client origin, then run the layout transaction to the requested size. It was worse than the
        accept-committed-size change alone: 24 of 48 checks fail over 8 runs (against 11 of 48), and many runs end at 100%
-       with the native window at the 150% position and size (780,470)-(1175,716). The group composes at a stale
-       position or size; the trace of that case is not taken yet.
+       with the native window at the 150% position and size (780,470)-(1175,716).
+     - **Trace of those adopt runs (compositor positions and scales at scene creation, view moves and transactions):**
+       the box is not computed at a stale scale; the two directions use different coordinate models and the factor 1.5
+       compounds. (1) At 100% -> 150% the group is already dropped when the first `configure_foreign` arrives (`dropped 1`,
+       no scene), so the native client never receives a resize request for the new scale. The frame keeps its logical
+       position (517,293), which is physical (776,440): the compositor's logical position is mirrored back into Wine's
+       physical placement ("logical place kept"). In some runs the native client also keeps its logical size (267x165),
+       which is 400x247 physical, and the group composes at that size, so the Wine frame grows by 1.5 to follow it.
+       (2) At 150% -> 100% Wine's physical placement (776,440 and 401x247) is kept ("physical place kept"), which at scale
+       1 is logical (776,440), 1.5 times the original; the transaction then asks the native client for 401x247 and the
+       window ends at the 150% rectangle. So one direction keeps the logical place and the other the physical one, and
+       what Wine remembers is whatever the first direction left. A single owner of placement across a scale change is
+       needed: either Wine's physical rectangle is saved at the scale message and restored (position and size, the native
+       size following within its own constraints) in both directions, or the logical one is. Neither exists; the
+       earlier observation-guard and active-frame trials changed only the shell side of this.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
