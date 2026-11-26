@@ -11,9 +11,9 @@ trap 'rm -rf -- "$FIXTURE"' EXIT
 export HOME="$FIXTURE/home"
 export WINEPREFIX="$HOME/.wine"
 export WEX_SKEL_PFX="$FIXTURE/skel/.wine"
-mkdir -p "$HOME" "$WINEPREFIX/drive_c/windows/temp"
+mkdir -p "$HOME" "$WINEPREFIX/drive_c"
 . "$SCRIPT_DIR/wine-explorer-session-common.sh"
-export WEX_SHELL_RESTART_DELAY=0 WEX_SHELL_WAIT=0.1
+export WEX_SHELL_RESTART_DELAY=0 WEX_SHELL_WAIT=0.1 WEX_SHELL_MARKER_WAIT=3
 MARKER="$(wex_session_ending_marker)"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -65,6 +65,21 @@ rc=0; wex_run_shell "$FIXTURE/shell_logoff" > "$FIXTURE/out" 2>&1 || rc=$?
 [ "$(runs)" = 1 ] || fail "with the session: $(runs) starts, not 1"
 echo 'ends_with_the_session=PASS'
 
+# Log Off without logind: the shell ends first and wineboot leaves the marker a moment later (within the grace time)
+reset
+cat > "$FIXTURE/shell_late" <<SH
+#!/bin/bash
+d=\$(dirname "\$0")
+echo run >> "\$d/runs"
+( sleep 0.6; touch "$MARKER" ) &
+exit 0
+SH
+chmod +x "$FIXTURE/shell_late"
+WEX_SHELL_MARKER_WAIT=20 wex_run_shell "$FIXTURE/shell_late" > "$FIXTURE/out" 2>&1 || true
+[ "$(runs)" = 1 ] || fail "late marker: $(runs) starts, not 1"
+grep -q 'with the session' "$FIXTURE/out" || fail 'late marker: the session did not end with it'
+echo 'late_marker_is_waited_for=PASS'
+
 # a stale marker from an earlier session is removed at the start: a crash is then restarted
 reset; touch "$MARKER"
 cat > "$FIXTURE/shell_once" <<SH
@@ -111,6 +126,46 @@ wex_run_shell "$FIXTURE/shell" > "$FIXTURE/out" 2>&1 || true
 [ "$(runs)" = 1 ] || fail "AutoRestartShell 0: $(runs) starts, not 1"
 echo 'auto_restart_off=PASS'
 winlogon_reg '"AutoRestartShell"=dword:00000001'
+
+# the crash loop guard stops restarting but keeps the session while the wineserver lives and no marker is there
+cat > "$FIXTURE/wineserver" <<'SH'
+#!/bin/bash
+[ -e "$(dirname "$0")/server" ]
+SH
+chmod +x "$FIXTURE/wineserver"
+export WEX_WINESERVER="$FIXTURE/wineserver"
+reset; touch "$FIXTURE/server"
+export WEX_SHELL_RESTARTS=1
+( wex_run_shell "$FIXTURE/shell" > "$FIXTURE/out" 2>&1; echo $? > "$FIXTURE/rc" ) &
+SUP=$!
+for _ in $(seq 50); do grep -q 'not starting it again' "$FIXTURE/out" 2>/dev/null && break; sleep 0.1; done
+grep -q 'not starting it again' "$FIXTURE/out" || fail 'guard: it did not trip'
+sleep 0.5
+kill -0 "$SUP" 2>/dev/null || fail 'guard: the session ended while the wineserver was there'
+touch "$MARKER"   # Log Off after the guard tripped
+for _ in $(seq 50); do kill -0 "$SUP" 2>/dev/null || break; sleep 0.1; done
+! kill -0 "$SUP" 2>/dev/null || { kill -9 "$SUP"; fail 'guard: the session did not end with the marker'; }
+unset WEX_SHELL_RESTARTS
+reset
+echo 'guard_keeps_the_session=PASS'
+
+# the marker is named per login session
+( XDG_SESSION_ID=7; wex_session_ending_marker ) | grep -q 'wex-session-ending-7$' || fail 'the marker has no session id'
+echo 'marker_per_session=PASS'
+
+# another shell: only of this prefix, by its WINEPREFIX; unset WEX_SHELL_PGREP for this one
+unset WEX_SHELL_PGREP
+for want in same other; do
+    if [ $want = same ]; then pfx="$WINEPREFIX"; else pfx="$FIXTURE/other-prefix"; fi
+    WINEPREFIX="$pfx" bash -c 'exec -a "C:\\windows\\system32\\explorer.exe /shell" sleep 20' &
+    OTHER=$!
+    sleep 0.5
+    if wex_shell_running; then got=same; else got=other; fi
+    kill "$OTHER" 2>/dev/null || true; wait "$OTHER" 2>/dev/null || true
+    [ "$got" = "$want" ] || fail "wex_shell_running: an explorer of the $want prefix was seen as $got"
+done
+export WEX_SHELL_PGREP="$FIXTURE/pgrep"
+echo 'shell_running_by_prefix=PASS'
 
 # a TERM to the session ends the shell and the session, with no restart
 reset

@@ -186,15 +186,29 @@ wex_auto_restart_shell()
 # shutdown; removed when the end is refused). The shell ending without it is a crash.
 wex_session_ending_marker()
 {
-    echo "$WINEPREFIX/drive_c/windows/temp/wex-session-ending"
+    # one file per login session when the display manager gives an id (wineboot names it the same way)
+    echo "$WINEPREFIX/drive_c/wex-session-ending${XDG_SESSION_ID:+-$XDG_SESSION_ID}"
+}
+
+# Whether the prefix's wineserver is still running (wineserver -k0 sends no signal and says whether there is one).
+wex_wineserver_alive()
+{
+    "${WEX_WINESERVER:-${WINESERVER:-$(dirname -- "$WINE")/wineserver}}" -k0 2>/dev/null
 }
 
 # Whether a shell of this account's desktop is running already (one the user started in the gap, or the supervisor's
 # own); explorer.exe of the desktop manager has the command line "explorer.exe /desktop".
 wex_shell_running()
 {
+    local pid env_prefix
     if [ -n "${WEX_SHELL_PGREP:-}" ]; then "$WEX_SHELL_PGREP"; return; fi
-    pgrep -u "$(id -u)" -f 'C:.windows.system32.explorer.exe /desktop' >/dev/null 2>&1
+    # the X11 session's explorer has "/desktop=...", the Wayland session's "/shell"; of this prefix only (another
+    # prefix's explorer of the same account must not hold the supervisor)
+    for pid in $(pgrep -u "$(id -u)" -f 'C:.windows.system32.explorer.exe /(desktop|shell)' 2>/dev/null); do
+        env_prefix=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^WINEPREFIX=//p' | head -1)
+        [ "${env_prefix:-$HOME/.wine}" = "$WINEPREFIX" ] && return 0
+    done
+    return 1
 }
 
 # Runs the shell as Winlogon does: when it ends while the session lives, it is started again (AutoRestartShell).
@@ -219,7 +233,13 @@ wex_run_shell()
         while kill -0 "$child" 2>/dev/null; do wait "$child"; rc=$?; done
         child=
         [ "$stopping" = 0 ] || { trap - TERM HUP INT; return "$rc"; }
-        if [ -e "$marker" ]; then echo "The shell ended (status $rc) with the session."; trap - TERM HUP INT; return "$rc"; fi
+        # Log Off without logind ends the shell at once after starting wineboot (msgina: ExitWindowsEx, then ExitProcess),
+        # and wineboot takes a moment to leave the marker: give it WEX_SHELL_MARKER_WAIT tenths of a second
+        for i in $(seq "${WEX_SHELL_MARKER_WAIT:-40}"); do [ -e "$marker" ] && break; sleep 0.1; done
+        if [ -e "$marker" ]; then
+            echo "The shell ended (status $rc) with the session (the marker was there after $((i / 10)).$((i % 10)) s)."
+            trap - TERM HUP INT; return "$rc"
+        fi
         if [ "$(wex_auto_restart_shell)" != 1 ]; then
             echo "The shell ended (status $rc); AutoRestartShell is off."; trap - TERM HUP INT; return "$rc"
         fi
@@ -231,6 +251,9 @@ wex_run_shell()
         times=("${kept[@]}")
         if [ "${#times[@]}" -ge "$max" ]; then
             echo "The shell ended (status $rc) $max times in $window seconds; not starting it again."
+            # the session stays until it ends on purpose (the marker) or the wineserver goes: the programs on the desktop
+            # keep running (unsaved work), and a shell started by hand (Task Manager's New Task) is still possible
+            while [ "$stopping" = 0 ] && [ ! -e "$marker" ] && wex_wineserver_alive; do sleep "${WEX_SHELL_WAIT:-1}"; done
             trap - TERM HUP INT; return "$rc"
         fi
         times+=("$now")

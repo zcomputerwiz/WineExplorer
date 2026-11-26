@@ -4855,30 +4855,37 @@ the Wine half of that (the session supervisor, `wex_run_shell`, is the WineExplo
 - `server/window.c`, `server/user.c`, `server/user.h`, `server/winstation.c`, `server/token.c`, `server/security.h`:
   - The desktop remembers who manages it (the user SID, session and integrity level of the process that created its
     top window) and whether that manager died (`destroy_thread_windows` sets `manager_died` when the thread of the top
-    window ends; a service desktop's window detaches the same way, so only Wine virtual and root desktops count).
+    window ends; a service desktop's window detaches the same way, which is why the window station is checked below).
   - A desktop-class `create_window` on such a desktop re-attaches the existing top window (`reattach_desktop_window`):
     thread, desktop and class are the new process's, the shared class locator and window procedure are rewritten, the
-    user handle table entry names the new owner thread and process (`set_user_handle_owner`; the clients check it), and
-    the handle stays. The programs that run on the desktop keep the handle they cached: their parent for top-level
-    windows, what `FindWindow` and `EnumWindows` start from. Children, z-order and unlinked windows are untouched. It is
-    refused (`STATUS_ACCESS_DENIED`) when the class has a different extra size.
-  - Who may take over (`may_take_over_desktop`, `token_may_take_desktop`): the manager died, the desktop is a Wine
-    virtual or root desktop, and the caller has the same user SID and session, at least the recorded integrity level,
-    and a token that is neither an AppContainer's nor restricted; the secure desktop only for the system role.
-    Anyone else gets `STATUS_ACCESS_DENIED` during the gap (not tested: no low-integrity or AppContainer caller in the
-    suite yet).
+    user handle table entry names the new owner thread and process (`set_user_handle_owner`; the clients check it), the
+    queue paint counts that `detach_window_thread` took off the old thread are put back, and the handle stays. The
+    programs that run on the desktop keep the handle they cached: their parent for top-level windows, what
+    `FindWindow` and `EnumWindows` start from. Children, z-order and unlinked windows are untouched. It is refused
+    (`STATUS_ACCESS_DENIED`) when the class has a different extra size.
+  - Who may take over (`may_take_over_desktop`, `token_may_take_desktop`): the manager died, the desktop is on the
+    interactive window station (`WSF_VISIBLE`: the Wayland session's desktop has no virtual or root flag, and a new
+    desktop inherits those flags from its creator, so they do not tell), and the caller (its process token, and its
+    thread's impersonation token when it has one) has the same user SID and session, at least the recorded integrity
+    level, and a token that is neither an AppContainer's nor restricted; the secure desktop only for the system role.
+    Anyone else gets `STATUS_ACCESS_DENIED` during the gap. Tested in `c4_dwm_restart`: a Low integrity process, and
+    a desktop of another window station. Not tested: an AppContainer caller.
   - Nothing changes while the top window has an owner.
 - `dlls/winex11.drv/window.c`: `X11DRV_SetDesktopWindow` in the process that made its own X desktop window (the manager)
   always uses and stores that window, not the one stored on the (older) server window; other processes adopt the stored
   one as before.
-- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\windows\temp\wex-session-ending` before they
-  start (removed when the end is refused). The session's supervisor tells a Log Off or shutdown from a crash of the
-  shell by it: the exit status of `wine explorer.exe` is 0 after a `kill -9` as well.
+- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\wex-session-ending` (with `-ID` of the login
+  session, `XDG_SESSION_ID`, when there is one) before they start (removed when the end is refused). The session's
+  supervisor tells a Log Off or shutdown from a crash of the shell by it: the exit status of `wine explorer.exe` is 0
+  after a `kill -9` as well. (The first file was `C:\windows\temp\...`: the Windows directory of an account's prefix
+  can be shared and read-only, and the file never appeared.)
 
 On a virtual desktop (the X11 session) the other programs' X windows are children of explorer's X desktop window and
 go with it: such a program keeps a working desktop handle but cannot create a new X window (the X error ends it).
-The Wayland session has no virtual desktop. Suite section `c4_dwm_restart` kills the shell's explorer, starts a new one
-on the same display at once, and checks, with a 64-bit and a 32-bit program that ran before the kill, that
-`IsWindow`, `FindWindow("Shell_TrayWnd")`, `TaskbarCreated` and a notification icon added again work, then the menu
-probe with and without composition. Stock Wine has the same code and so, by reading it, the same failures; that was not
-run.
+The Wayland session has no virtual desktop. Suite section `c4_dwm_restart` runs the shell under the session's own
+supervisor, kills its explorer, and checks, with a 64-bit and a 32-bit program that ran before the kill, that
+`IsWindow`, `FindWindow("Shell_TrayWnd")`, `TaskbarCreated` and a notification icon added again work; that a Low
+integrity process is refused during the gap and a service desktop is not adopted; the menu probe with and without
+composition; and finally a Log Off as msgina's fallback does it (`wineboot --end-session --force`, and the shell ends
+at once), which must end the supervisor with no new shell. Stock Wine has the same code and so, by reading it, the same
+failures; that was not run.

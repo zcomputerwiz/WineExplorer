@@ -26,6 +26,7 @@ scripts/test_sysrun_server.sh           normalsuite
 scripts/dwm-popup-probe.cpp             normalsuite
 scripts/dwm-menu-probe.c               normalsuite
 scripts/dwm-survivor-probe.c           normalsuite
+scripts/dwm-adopt-probe.c              normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
 scripts/test_e1s6_transport.sh          lab
 scripts/e1s10_issue_probe.c             lab

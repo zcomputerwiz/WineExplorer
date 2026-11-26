@@ -3579,6 +3579,9 @@ if [ "$1" = restart ]; then   # the program that runs across the restart, 64- an
             2>"$MENUD/build-sv$a.log" || { cat "$MENUD/build-sv$a.log" >&2; fail "restart: the survivor probe $a does not build"; }
         chmod 0755 "$MENUD/dwm-survivor-probe$a.exe"
     done
+    x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-adopt-probe.exe" "$SRC/scripts/dwm-adopt-probe.c" -luser32 -ladvapi32 \
+        2>"$MENUD/build-adopt.log" || { cat "$MENUD/build-adopt.log" >&2; fail "restart: the adopt probe does not build"; }
+    chmod 0755 "$MENUD/dwm-adopt-probe.exe"
 fi
 # a wineserver left by earlier sections (started on their display, with their state) is not this section's
 pkill -u "$ADM" -x wineserver 2>/dev/null || true
@@ -3599,7 +3602,18 @@ rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
 wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "menu: HKCU DwmService"
 wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
     fail "menu: the EnableShell key"
-run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
+if [ "$1" = restart ]; then
+    # the session's own supervisor runs the shell, as wine-explorer-session.sh does: it starts it again after the kill
+    # (six seconds later, a gap wide enough for the refusals below) and ends with a Log Off
+    cp "$SRC/scripts/wine-explorer-session-common.sh" "$MENUD/"
+    mkdir -p "$MENUD/lib" && cp "$SRC/scripts/lib/wex-common.sh" "$MENUD/lib/" && chmod -R a+rX "$MENUD/lib" "$MENUD/wine-explorer-session-common.sh"
+    run_as "$ADM" env DISPLAY=":$MENUDN" WINE="$BUILD/wine" WEX_WINESERVER="$BUILD/server/wineserver" WEX_LIB_DIR="$MENUD/lib" \
+        WEX_SKEL_PFX=/nonexistent WEX_SHELL_RESTART_DELAY=6 timeout 400 bash -c \
+        '. "$1"; wex_run_shell "$WINE" explorer.exe /desktop=Default,1280x800 /shell; echo "supervisor returned $?"' _ \
+        "$MENUD/wine-explorer-session-common.sh" >"$MENUD/shell.log" 2>&1 &
+else
+    run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
+fi
 MENUSHELL=$!
 sleep 10
 if [ "$1" = restart ]; then
@@ -3618,12 +3632,29 @@ if [ "$1" = restart ]; then
     done
     grep -qs 'survivor ready' "$SVD/survivor-64.log" && grep -qs 'survivor ready' "$SVD/survivor-32.log" ||
         fail "$2: the survivor probes did not start"
+    # who may NOT take the desktop over (the server's rule, may_take_over_desktop): a service desktop is not adopted, and
+    # a Low integrity process is refused in the gap between the old shell and the new one
+    rm -f "$SVD"/adopt-*.log "$SVD/adopt.go"
+    run_as "$ADM" env WINEDEBUG=-all DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-adopt-probe.exe")" service \
+        >"$MENUD/adopt-service.out" 2>&1 || true
+    run_as "$ADM" env WINEDEBUG=-all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" "$(winpath "$MENUD/dwm-adopt-probe.exe")" lowil \
+        >"$MENUD/adopt-lowil.out" 2>&1 &
+    for _ in $(seq 60); do grep -qs 'lowchild ready' "$SVD/adopt-lowil.log" && break; sleep 1; done
+    grep -qs 'lowchild ready' "$SVD/adopt-lowil.log" || { cat "$SVD/adopt-lowil.log" >&2; fail "$2: the low integrity child did not start"; }
     pkill -9 -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' 2>/dev/null || true
-    run_as "$ADM" env WINEDEBUG=err+all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell2.log" 2>&1 &
-    MENUSHELL=$!
+    for _ in $(seq 100); do pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null || break; sleep 0.1; done
+    sleep 1   # the server has seen the manager die
+    touch "$SVD/adopt.go"
+    for _ in $(seq 40); do grep -qs '^lowil \(DENIED\|ADOPTED\)' "$SVD/adopt-lowil.log" && break; sleep 1; done
+    # the supervisor starts the shell again: a new explorer of the desktop within a minute, and it stays
+    for _ in $(seq 60); do pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null && break; sleep 1; done
+    pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null ||
+        { tail -20 "$MENUD/shell.log" >&2; fail "$2: the supervisor did not start the shell again"; }
     sleep 12
-    ! grep -q BadWindow "$MENUD/shell2.log" || { tail -10 "$MENUD/shell2.log" >&2; fail "$2: the restarted explorer died with BadWindow"; }
-    grep -a -v -E "get_work_area|ALSA" "$MENUD/shell2.log" | tail -20 >&2 || true
+    pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null ||
+        { tail -20 "$MENUD/shell.log" >&2; fail "$2: the shell that the supervisor started ended"; }
+    ! grep -q BadWindow "$MENUD/shell.log" || { tail -10 "$MENUD/shell.log" >&2; fail "$2: the restarted explorer died with BadWindow"; }
+    grep -q 'starting it again' "$MENUD/shell.log" || { tail -10 "$MENUD/shell.log" >&2; fail "$2: the supervisor did not log a restart"; }
     # the programs that ran before the kill: what they must still be able to do on the new shell's desktop
     touch "$SVD/survivor.go"
     for _ in $(seq 60); do
@@ -3638,6 +3669,12 @@ if [ "$1" = restart ]; then
     done
     [ -z "$sv_fail" ] || { tr -d '\r' < "$SVD/survivor-64.log" >&2; tr -d '\r' < "$SVD/survivor-32.log" >&2; fail "$2:$sv_fail"; }
     echo "restart: both survivors ok (iswindow, findwindow, taskbarcreated, trayicon; no new windows on a virtual desktop)"
+    ad_fail=
+    grep -qs '^lowchild il=1000' "$SVD/adopt-lowil.log" || ad_fail="$ad_fail the child was not Low integrity;"
+    grep -qs '^lowil DENIED error=5' "$SVD/adopt-lowil.log" || ad_fail="$ad_fail a Low integrity process was not refused with ACCESS_DENIED in the gap;"
+    grep -qs '^service DENIED error=5' "$SVD/adopt-service.log" || ad_fail="$ad_fail a service desktop was taken over (or the probe failed);"
+    [ -z "$ad_fail" ] || { tr -d '\r' < "$SVD/adopt-lowil.log" >&2; tr -d '\r' < "$SVD/adopt-service.log" >&2; fail "$2:$ad_fail"; }
+    echo "restart: a Low integrity process and a service desktop were refused (ACCESS_DENIED); the new explorer took the desktop"
 fi
 if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
     sleep 5; DISPLAY=":$MENUDN" xdotool key super; sleep 4
@@ -3665,6 +3702,31 @@ if [ -n "${MENU_R:-}" ]; then
 fi
 echo "menu (composition ${MENUCOMP:-off}, SPI_GETDROPSHADOW ${MENU_SPI:-?}): rect ${MENU_L:-?},${MENU_T:-?} ${MENU_R:-?},${MENU_B:-?}, inside ${MENU_IN:-?}, 3 px below ${MENU_BELOW:-?}, 3 px right ${MENU_RIGHT:-?}, 40 px below ${MENU_FAR:-?}"
 cp "$MENUD/screen.png" "$ROOT/menu-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
+logoff_ok=
+if [ "$1" = restart ]; then
+    # a real Log Off: wineboot --end-session --shutdown (what ExitWindowsEx runs) must end the session, i.e. the
+    # supervisor returns and does not start the shell again
+    kill -0 "$MENUSHELL" 2>/dev/null || fail "$2: the supervisor was gone before the Log Off"
+    rm -f "$MENUD/restarts-before.txt"; grep -c 'starting it again' "$MENUD/shell.log" > "$MENUD/restarts-before.txt" || true
+    # as msgina's Log Off without logind does: ExitWindowsEx starts wineboot --end-session, and the shell ends at once
+    # (ExitProcess), before wineboot has left the marker
+    run_as "$ADM" "$BUILD/wine" wineboot --end-session --force --shutdown >"$MENUD/logoff.log" 2>&1 &
+    LOGOFF_PID=$!
+    pkill -9 -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' 2>/dev/null || true
+    LOGOFF_RC=0; wait "$LOGOFF_PID" 2>/dev/null || LOGOFF_RC=$?
+    echo "Log Off: wineboot --end-session exit status $LOGOFF_RC" >&2
+    for _ in $(seq 60); do kill -0 "$MENUSHELL" 2>/dev/null || break; sleep 1; done
+    if ! kill -0 "$MENUSHELL" 2>/dev/null; then
+        sleep 10   # no new shell comes after it
+        if ! pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null &&
+           [ "$(grep -c 'starting it again' "$MENUD/shell.log")" = "$(cat "$MENUD/restarts-before.txt")" ]; then logoff_ok=1; fi
+    fi
+    tail -5 "$MENUD/shell.log" >&2
+    if [ -z "$logoff_ok" ]; then   # what is left
+        ps -u "$ADM" -o pid,ppid,stat,etime,args | grep -a -E "explorer|bash -c|start.exe" | cut -c1-150 >&2 || true
+        ls -la "/home/$ADM/.wine/drive_c/" >&2 || true
+    fi
+fi
 touch "/home/$ADM/.wine/drive_c/menu.stop" "/home/$ADM/.wine/drive_c/survivor.stop"
 sleep 2
 kill "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true; wait "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true
@@ -3673,8 +3735,9 @@ wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/de
 pkill -u "$ADM" -x wineserver 2>/dev/null || true
 kill "$MENUX" 2>/dev/null || true
 rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop" "/home/$ADM/.wine/drive_c"/survivor-*.log \
-    "/home/$ADM/.wine/drive_c/survivor.go" "/home/$ADM/.wine/drive_c/survivor.stop"
+    "/home/$ADM/.wine/drive_c/survivor.go" "/home/$ADM/.wine/drive_c/survivor.stop" "/home/$ADM/.wine/drive_c"/adopt-*.log "/home/$ADM/.wine/drive_c/adopt.go"
 menu_fail=""
+[ "$1" != restart ] || [ -n "$logoff_ok" ] || menu_fail="$menu_fail a Log Off (wineboot --end-session) did not end the session: the supervisor kept running or started the shell again;"
 [ -n "${MENU_R:-}" ] || menu_fail="$menu_fail the probe did not report the menu's rectangle;"
 [ "${MENU_FAR:-}" = 255,128,0 ] || menu_fail="$menu_fail 40 px below the menu is not the orange (${MENU_FAR:-none});"
 [ "${MENU_SPI:-}" = 1 ] || menu_fail="$menu_fail SPI_GETDROPSHADOW is not on by default (${MENU_SPI:-none});"
