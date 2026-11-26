@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## imm32: CtfImmTIMActivate, text services on window activation (UWP, Wine branch `claude/ctfimm-tim`, 2026-11-26)
+
+* `dlls/imm32/imm.c`, `imm32.spec`: `CtfImmTIMActivate(hkl, activate)` was a bare `@ stub` (a call aborted the process). It now
+  gives the calling thread an apartment (the existing implicit COM initialisation) and an active msctf thread manager
+  (`TF_CreateThreadMgr` + `Activate`, loaded dynamically, kept with the thread's implicit COM data and deactivated with it); with
+  FALSE it does nothing; returns S_OK. The default IME window calls it on `IME_INTERNAL_ACTIVATE` (sent by win32u when a window of
+  the thread is activated).
+* Measured on Windows 11 (`tests/uwp/alpc/tsf-probe.c`, 64- and 32-bit): user32 calls `CtfImmTIMActivate(hkl, TRUE)` on the first
+  activation of a window of the thread (SetForegroundWindow, SetFocus, SW_SHOWDEFAULT, WS_VISIBLE), not on SW_SHOWNOACTIVATE or for
+  message-only windows; afterwards `TF_GetThreadMgr` returns the thread's manager. The 32-bit export takes two stack arguments.
+  Wine now gives the same answers for all probe cases; Windows also creates `CicMarshalWndClass` / `MSCTFIME UI` and loads
+  `TextInputFramework.dll`, which Wine's msctf does not have.
+* Why: Notepad's (Windows App SDK) UI thread gets its text services this way inside `ShowWindow`. On its own this does not move
+  Notepad further (lab b37), but it removes an abort for any caller and matches Windows.
+* Blast radius: every thread that activates a window now loads msctf.dll and holds an activated thread manager (Windows does the
+  same). Programs that create their own manager get the same per-thread object.
+* Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate`. Lab: imm32 test x86_64 5586 / i386 5589 tests, 0 failures. msctf's
+  `inputprocessor` test times out in the lab with and without the change.
+
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
 
 * New module `dlls/windows.security.enterprisedata` (a registered WinRT activation DLL, like windows.security.authentication.onlineid) with
