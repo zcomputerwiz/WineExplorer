@@ -188,6 +188,25 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          lab has no Carlito: the control's own default face is Calibri).
        * That did not move Notepad (b28 run: still one clock call, no surfaces, no caret, no 0x5fc post): the layout is a prerequisite
          for the caret, not the cause of the UI thread's missing second batch.
+       * **Loader rule done (2026-11-26).** Wine `claude/package-dll-load-order` (aa5b882a; design `DESIGN_PACKAGE_DLL_LOAD_ORDER.md`):
+         a native file in `WindowsApps\<package full name>\` gets `native,builtin`. Lab run b29 without the override: the package's
+         riched20 loads and `RichEditD2DPT` is created. Notepad's stall is unchanged.
+     - **Where the UI thread's start-up diverges (2026-11-26; lab b29/b30/b31, Windows wintrace `wt-uiafter2`, `wt-disp`, `wt-loop`).**
+       * Windows, same thread, same activation: after `UserActivityRequestManager` (interop `GetForWindow`, then `add_UserActivityRequested`)
+         the stack names `Notepad.exe`, `user32`, `Microsoft.UI.Windowing.Core`: it runs inside a window message of the app window. The
+         next activations are `PropertyValue`, `Uri`, then the template classes (`TabViewListView`, `TabViewItem`, ...) with
+         `NotepadXamlUI.dll` over `Microsoft.ui.xaml.dll` on the stack (XAML loading the page).
+       * Exported calls on Windows right after it: `GetWindowThreadProcessId` six times (one window: the same check six times, all
+         inside Windows' appcore), `GetMessageW` twice, posted (0x60,5,4) wakes to two CoreMessaging windows (its own and another
+         thread's), `SetWindowPos` on the three input-site windows, then rounds of `SetTimer(1,0x7fffffff)`, posted (0x60,6,0),
+         `SetTimer(1,0)`. Wine: one `GetWindowThreadProcessId` (our appcore), `GetMessageW`, one round of (5,5),(0,0),(5,4) on its own
+         adapter window, one posted (6,0), `SetWindowCompositionAttribute`, then the first D3D device (on the UI thread) and a few
+         `agile_ref_Resolve` calls, then nothing. No exception on the UI thread, no HRESULT failure logged.
+       * So the next step is the code that follows the subscription (it enqueues the XAML page load): on Windows it runs, on Wine the
+         thread returns to the loop with nothing queued. Which condition it tests is not known. Candidates: a value from an object
+         Wine serves (`ApiInformation`, `UISettings`, `CoreApplication`, `AppWindow`, the manager), or work enqueued to a queue whose
+         wake (6,0) never repeats. Next experiment: a Windows trace of the exported calls between the subscription and the first
+         `Uri` activation (`GetMessageW`/`PeekMessageW` returns with message ids), and a Wine run with `+twinapi,+wintypes,+windows.ui`.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
