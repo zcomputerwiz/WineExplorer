@@ -228,6 +228,24 @@ way.
        needed: either Wine's physical rectangle is saved at the scale message and restored (position and size, the native
        size following within its own constraints) in both directions, or the logical one is. Neither exists; the
        earlier observation-guard and active-frame trials changed only the shell side of this.
+   - **The rule that replaces the attempts above (decided 2026-11-26): one owner of placement across an output scale
+     change, the shell.** Windows' own model for a Per-Monitor-V2 window is the template: the window keeps its top left and
+     its device-independent size, so its physical size follows the scale ratio (the suggested rectangle of
+     `WM_DPICHANGED`). The shell (`wex_scale_changed` in `wexshell/linux_windows.c`, triggered by a hosted frame's or the
+     taskbar's scale message, once per change) converts every normal top-level window's size by the ratio around its top
+     left, in both directions, hosted frames and plain Wine windows alike. The compositor and the driver follow what the
+     shell sets; nobody else writes placement during a scale change. Minimized, maximized and fullscreen windows keep their
+     own policy. The session starts at 100% and the driver posts no message for the initial scale, so the shell assumes
+     120 (120ths) at the start. In the compositor, `view_adjust_for_layout_change` no longer applies stock labwc placement
+     (moving floating views in proportion to the layout, a second writer) to Wine windows or the native views their frames
+     reserve (wexcomp `claude/scale-owner-follow`, on top of the accept-committed-size change).
+   - **Result of that rule (headless, `wayland-scale-cycle.sh`, 3 cycles = 6 checks per run per window):** the plain Wine
+     window (`WITH_FOOT=0`) passes ten runs in a row, 0 of 60 checks failing: top left kept at both scales, size 1.5 times
+     at 150% and the original at 100%; the compositor suite stays 63/63. Hosted foot is **not** fixed: about 19 of 48
+     checks still fail (the group is dropped when the terminal re-snaps by itself, and nothing re-forms it at the frame's
+     position; the re-adoption attempt, wexcomp `claude/scale-adopt-wip`, did not help: 23 of 48). Hosting of native
+     windows is opt-in (`WEX_WAYLAND_NATIVE_WINDOWS=1`); the default Wayland session does not use it. Open: the hosted
+     case, and A's interactive-resize case with the stall time measured.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
