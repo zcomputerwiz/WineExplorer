@@ -138,6 +138,27 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        (who sets the events the packets are associated with). Finding that needs the call graph, which the TTD rule does not
        allow us to read; the next step is to bisect with exported-call traces filtered to the events set just before each
        Windows round.
+     - **Why Windows keeps going and Wine stops: the edit thread's start-up (2026-11-26; wintrace on exported calls, lab +relay;
+       `tests/uwp/alpc/loop-probe.c` and `np-drive.c`).**
+       * The worker round alone (`loop-probe`: 2582, SetTimer 0 and max, Drain2, MsgWait) sustains itself on Windows *and* Wine
+         (the 2582 message wakes the wait), so the CoreMessaging calls are not what stops Wine. On Windows the UI thread keeps
+         waking the worker (SetEvent, then `PostMessage(worker,0x60,5,4)`, every 0.3 to 0.7 s).
+       * What the UI thread does on Windows after its `PostMessage(0x405)` and `SetForegroundWindow`: more `SetWindowPos` rounds,
+         thread creations, then a run of `SendMessage` calls that configure the RichEdit (0x443, 0x444, 0x4e0, 0x2e0), a
+         `SendMessage(textbox, 0x5fc)` and a **`PostMessage(textbox window, 0x5fc, pointer, pointer)`**. Wine's UI thread stops at the
+         `PostMessage(0x405)` plus three `SetWindowPos` and never posts 0x5fc (Wine log: 44 window calls in all, none after that).
+       * The edit thread's handling of that posted 0x5fc, Windows: `SetFocus(RichEdit)`, `SendMessage(UI window, 0x5fd)`,
+         `InvalidateRect`, `WM_COMMAND(EN_SETFOCUS)` up, `WM_IME_SETCONTEXT`, post 0x602 to the UI window, **`CreateCaret`**. The caret
+         makes `WM_SYSTIMER` 0xffff (the blink, ~530 ms): 15 in 18 s, each followed by a paint of the edit window and a compositor
+         frame. Wine: no `SetFocus` on the edit thread, no `CreateCaret`, no `WM_SYSTIMER`: nothing keeps the compositor busy.
+       * Real input does not help (`np-drive.exe` in the lab, click and typing): `WM_LBUTTONDOWN`, `WM_KEYDOWN` and `WM_CHAR` reach the
+         UI thread's windows, yet no caret, no surfaces, one clock call.
+       * So Notepad's UI thread, in Wine, does not get past its start-up work: the dispatcher never receives the item that posts
+         0x5fc. Candidates: a WinRT async operation that never completes (the log shows `Microsoft.Windows.ApplicationModel.Resources.
+         ResourceManager` and `Windows.Internal.StateRepository.Package` activated; `Windows.Security.EnterpriseData.ProtectionPolicyManager`
+         has no library: `err:combase:RoGetActivationFactory`), many `IPropertyValue` interfaces refused (`property_value_QueryInterface`,
+         ~300 times), `Windows.UI.ViewManagement.UISettings` and `ApplicationLanguages` semi-stubs. Next: on Windows record which
+         WinRT classes/methods precede the 0x5fc post on the UI thread (wintrace `winrt!Class@{IID}[N]` targets) and compare with Wine.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
