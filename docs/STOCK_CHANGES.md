@@ -1,5 +1,23 @@
 # Changes to stock Wine / third-party code
 
+## inputhost: the input-site classes of the Windows App SDK's input component (UWP, Wine branch `claude/inputhost`, 2026-11-26)
+
+* New module `dlls/inputhost` (a registered WinRT activation DLL) with the classes `Windows.UI.Internal.Input.InputSite` and
+  `Windows.UI.Internal.Input.ActivationConfigurationInputObject`. Notepad's input thread (the application's own copy of the Windows App
+  SDK's input component, as on Windows 10 where the system has none) creates a site per input window and ended in a fail fast when the
+  class was missing. No metadata describes these classes: the class names and interface ids are the ones Windows answers, the interface
+  and method names in `classes.idl` are ours, and the shapes were measured at the interface boundary with our own objects
+  (`tests/uwp/alpc/inputsite-factory-probe.c`, `inputsite-create-probe.c`, `docs/uwp/DESIGN_INPUTSITE.md`).
+* Wine follows Windows 10 (19045): the site factory answers `{8ca0442d-...}` (Windows 11 26300 serves `{73f80911-...}` to its system
+  component and refuses the other). Creation takes the caller's host object, asks it for `{92179cc0-...}` and calls slot 9 of that for
+  the composition input sink handle; no reference to the host is kept. Windows ends the process when the host refuses, Wine returns the
+  host's error. The configuration object is created from a site and keeps two 32-bit settings.
+* Not implemented: the other interfaces Windows lists on the two objects (`{e6414e4b-...}`, `{2cc67fbf-...}`, `{46cae093-...}` and more
+  on the configuration object; refused with a FIXME, Notepad does not ask for them at start-up), and input delivery through the site.
+* `tests/inputhost.c` passes on Windows 10 and Windows 11 in 32 and 64 bit and in Wine (x86_64; i386 built, its lab run lacked the
+  32-bit registration view of a prefix that was not updated).
+* `configure.ac` and `configure`: the module and its tests directory (two and three lines, by hand).
+
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
 
 * New module `dlls/windows.security.enterprisedata` (a registered WinRT activation DLL, like windows.security.authentication.onlineid) with
