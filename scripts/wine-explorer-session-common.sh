@@ -227,13 +227,13 @@ wex_run_shell()
     local child= rc stopping=0 i now marker max=${WEX_SHELL_RESTARTS:-3} window=${WEX_SHELL_RESTART_WINDOW:-60}
     local -a times=() kept=()
     marker=$(wex_session_ending_marker)
-    trap 'stopping=1; [ -z "$child" ] || kill -TERM "$child" 2>/dev/null' TERM HUP INT
+    trap 'stopping=1; [ -z "$child" ] || kill -TERM "$child" 2>/dev/null || true' TERM HUP INT
     rm -f "$marker"
     while :; do
         "$@" &
         child=$!
-        wait "$child"; rc=$?
-        while kill -0 "$child" 2>/dev/null; do wait "$child"; rc=$?; done
+        rc=0; wait "$child" || rc=$?
+        while kill -0 "$child" 2>/dev/null; do wait "$child" || rc=$?; done
         child=
         [ "$stopping" = 0 ] || { trap - TERM HUP INT; return "$rc"; }
         # Log Off without logind ends the shell at once after starting wineboot (msgina: ExitWindowsEx, then ExitProcess),
