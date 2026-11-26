@@ -34,7 +34,7 @@ what was done towards it on 2026-11-11.
 | Output management (Display Properties) | **Done 2026-11-11** for one output: wexhost uses wlr-output-management, which wexcomp implements (`src/dlls/wexhost/wloutput.c`). Before, it used only XRandR, which in the Wayland session had no `DISPLAY` and failed. The next Wayland session restores the saved mode. More than one output is still refused, as on X11. Display Properties' own dialogs on Wayland are not yet tested. |
 | Multi-monitor and scale | Partly. Scale changes are handled per window for hosted native windows, and the taskbar's reserved edge is per output. The v14 frame clock and the frame-scheduling fallback use only the first output, and the Mica blur is one node over the whole layout. |
 | Automatic adoption of native windows | The session already turns it on: the script exports `WEX_WAYLAND_NATIVE_WINDOWS=1`. Without it, Explorer reports "not managing Linux windows" (the AUTO backend is not attached). |
-| CS_DROPSHADOW (D3) | **Done 2026-11-26** (with composition on). The shell's class-shadow hook (`wexshell/desktop.c`) used to run only for X11. It now runs for both backends and asks one neutral call, `WexWmSetClassShadow` (`wexhost.c`): X11 sets the compositor's per-window flag as before, Wayland sends a shadow-only effect (`WexWmApplyEffects`, no backdrop, square corners) that wexcomp draws for any window the shell flags. Headless check: `scripts/wexbuild-root/wayland-class-shadow.sh` with `scripts/class-shadow-probe.c` (before: no shadow beside the window; after: darker 2 px out than 30 px out). The look is wexcomp's shadow, not the X11 compositor's 9-slice; not run in a VM, and the X11 path only built, not run. |
+| CS_DROPSHADOW (D3) | **Done 2026-11-26** (with composition on). The shell's class-shadow hook (`wexshell/desktop.c`) used to run only for X11. It now runs for both backends and asks one neutral call, `WexWmSetClassShadow` (`wexhost.c`): X11 sets the compositor's per-window flag as before, Wayland sends a shadow-only effect (`WexWmApplyEffects`, no backdrop, square corners) that wexcomp draws for any window the shell flags. Headless check: `scripts/wexbuild-root/wayland-class-shadow.sh` with `scripts/class-shadow-probe.c` (before: no shadow beside the window; after: XP's shape, below). The shadow is the `class_shadow` flag of wexcomp (see item 6), the same pixels as the X11 compositor's; not run in a VM, and the X11 path only built, not run. |
 | Physical hardware | Not run (VMs and headless only). |
 
 ## Shared design, thin adapters
@@ -151,14 +151,15 @@ way.
    screen's session list follows the account clicked (below), so it no longer shows X11 for a Wayland account.
 5. Done on 2026-11-12: the shell-only protocols are offered on the private socket only (wexcomp `1f8e5d3a`, above).
 6. The 150% scaling items, multi-output frame clock and Mica. (CS_DROPSHADOW: done 2026-11-26, above.)
-   - **Follow-up, open (Orchestrator's parity rule):** the Wayland shadow of menus and tooltips must look like XP's
-     CS_DROPSHADOW, which on X11 is the compositor's 9-slice (`compose.c`: `SHADOW_RADIUS 12`, `SHADOW_OFFSET 4`,
-     `SHADOW_ALPHA 0x59`). wexcomp draws a flagged window's shadow with its own parameters (`wex-window.c`: an analytical
-     Gaussian blur, sigma 24 and alpha 0.22 for the Windows 10/11 style, sigma 8 and alpha 0.35 for Aero; stepped rects
-     without SceneFX). They are not the same, and no side-by-side capture exists yet (only the pixel check of the
-     headless test, which shows a shadow, not its shape). Needs: the same popup on both sessions, captured, and either
-     wexcomp parameters for class-shadow windows that match (a class-shadow flag value, not the frame style) or an
-     owner decision that the Wayland look stays.
+   - Parity of the class shadow (Orchestrator's rule: XP's look, as X11 draws it): **done 2026-11-26.** wexcomp has a
+     separate effect flag `class_shadow` (16, `wex-window-v1.xml`; `WEX_SHADOW_CLASS` as the value of
+     `WEX_WINDOW_EFFECT.shadow`, because that struct's layout is fixed by static asserts) that paints the same pixels as
+     the X11 compositor: six nested black rectangles from the window's corner, 8 px wider and taller, alpha
+     (600 + 650 i) / 65535 each. The earlier numbers in this document and in `DWM_PLAN.md` for the X11 shadow (radius
+     12, offset 4, alpha 0x59, a 9-slice) do not describe the code (`compose.c`, `paint_shadow`): only the strip right
+     of and below the window shows, 8 px wide, at most about 18% black at the edge. The headless check measures that
+     shape (darker at 1 px than at 6 px, none at 12 px, none above or left). Not compared side by side with a real X11
+     capture, and not run in a VM.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;

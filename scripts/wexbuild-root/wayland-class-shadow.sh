@@ -55,11 +55,19 @@ im = Image.open("/root/wlshadow-out/shadow.png").convert("RGB")
 w, h = im.size
 x0, y0, x1, y1 = 400, 300, 600, 420
 print("screen", w, h, "window pixel", im.getpixel((500, 360)))
-rc = 1
-for name, near, far in (("bottom", (500, y1 + 2), (500, y1 + 30)), ("right", (x1 + 2, 360), (x1 + 30, 360))):
-    a, b = im.getpixel(near), im.getpixel(far)
-    print(f"{name}: 2 px out {a}, 30 px out {b}")
-    if sum(a) + 6 <= sum(b) and all(p <= q for p, q in zip(a, b)): rc = 0
-print("PASS shadow around a CS_DROPSHADOW window" if rc == 0 else "FAIL no shadow around the window")
+rc = 0
+bg = im.getpixel((x1 + 30, 360))
+def dark(p): return sum(bg) - sum(p)
+# XP's class shadow (the X11 compositor's six nested rectangles, 8 px right of and below the window, fading out):
+# below and right: darker at the edge than 6 px out, and gone by 12 px; above and left: none at all
+for name, at in (("bottom", lambda d: (500, y1 + d)), ("right", lambda d: (x1 + d, 360))):
+    a, b, c = (im.getpixel(at(d)) for d in (1, 6, 12))
+    print(f"{name}: 1 px out {a} (darker by {dark(a)}), 6 px {b} (by {dark(b)}), 12 px {c} (by {dark(c)})")
+    if not (dark(a) >= 20 and dark(a) > dark(b) > 0 and dark(c) == 0):
+        rc = 1; print(f"  FAIL {name}: not a shadow that falls off over 8 px")
+for name, p in (("top", (500, y0 - 2)), ("left", (x0 - 2, 360))):
+    print(f"{name}: 2 px out {im.getpixel(p)} (darker by {dark(im.getpixel(p))})")
+    if dark(im.getpixel(p)) != 0: rc = 1; print(f"  FAIL {name}: a shadow where XP's has none")
+print("PASS XP's class shadow around a CS_DROPSHADOW window" if rc == 0 else "FAIL the class shadow is not XP's")
 raise SystemExit(rc)
 EOF

@@ -335,6 +335,11 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 #define WEX_WM_EFFECT_DARK       0x2
 #define WEX_WM_EFFECT_TINT       0x4
 #define WEX_WM_EFFECT_REGION     0x8
+#define WEX_WM_EFFECT_CLASS_SHADOW 0x10
+/* WEX_WINDOW_EFFECT.shadow: a frame shadow (any nonzero value before: TRUE) or the shadow of a CS_DROPSHADOW class,
+ * XP's look; the struct's layout is fixed (static asserts), so the style is the value, not a field */
+#define WEX_SHADOW_FRAME 1
+#define WEX_SHADOW_CLASS 2
 /* Neutral DWM policy in Wine pixels, client coordinates and ABGR. The explicit
  * square sentinel is retained; materials FALSE skips X11 backdrop writes but
  * still clears the Wayland backdrop. This does not enable composition. */
@@ -346,7 +351,7 @@ typedef struct
 {
     DWORD kind, tint, radius, default_radius;
     RECT region;
-    BOOL tinted, has_region, dark, shadow, materials;
+    BOOL tinted, has_region, dark, shadow, materials;   /* shadow: 0, WEX_SHADOW_FRAME or WEX_SHADOW_CLASS */
 } WEX_WINDOW_EFFECT;
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */

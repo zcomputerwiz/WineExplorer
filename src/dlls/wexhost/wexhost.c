@@ -1025,7 +1025,7 @@ DWORD WINAPI WexWmSetClassShadow( HWND hwnd, BOOL shadow )
         return WexCompositionSetShadow( params.window, shadow );
     }
     effect.kind = WEX_EFFECT_NONE;
-    effect.shadow = !!shadow;
+    effect.shadow = shadow ? WEX_SHADOW_CLASS : 0;   /* XP's class shadow, not the frame shadow of the Windows 10/11 or Aero style */
     return WexWmApplyEffects( hwnd, &effect, &result );
 }
 
