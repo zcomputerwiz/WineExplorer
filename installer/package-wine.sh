@@ -350,6 +350,11 @@ cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.
 cp "$SCRIPT_DIR/systemd/wex-accounts-sync.service" "$SCRIPT_DIR/systemd/wex-accountsd.socket" "$SCRIPT_DIR/systemd/wex-accountsd.service" \
     "$STAGE_SESSION/lib/systemd/system/"
 install -D -m644 "$SCRIPT_DIR/polkit/49-wexaccounts.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexaccounts.rules"
+# blank passwords at the logon screen only (docs/BLANK_PASSWORDS.md): the root-run reconcile of nopasswdlogin, its units, and
+# the PAM change (applied by setup-machine-root.sh with the accounts helper)
+cp "$SCRIPT_DIR/systemd/wex-accounts-blank.service" "$SCRIPT_DIR/systemd/wex-accounts-blank.path" "$STAGE_SESSION/lib/systemd/system/"
+install -D -m755 "$SCRIPT_DIR/blank/wex-accounts-blank-reconcile" "$STAGE_SESSION/usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile"
+install -D -m755 "$SCRIPT_DIR/blank/wex-blank-pam.sh" "$STAGE_SESSION/usr/local/libexec/wineexplorer/wex-blank-pam.sh"
 # system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled by setup-machine-root.sh with WEX_SESSION0=1 (the
 # default for new installs, below)
 cp "$SCRIPT_DIR/systemd/wex-session0.service" "$SCRIPT_DIR/systemd/wex-session0-services.service" "$STAGE_SESSION/lib/systemd/system/"

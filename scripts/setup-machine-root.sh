@@ -1039,6 +1039,24 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                 chmod 0644 "$(dirname -- "$SYSRUN_CONF")/accountsd.conf"
                 systemctl enable --now wex-accountsd.socket ||
                     echo "WARNING: the accounts helper's socket did not start (wex-accountsd.socket)" >&2
+                # blank passwords at the logon screen only (docs/BLANK_PASSWORDS.md): the root-run reconcile of the group
+                # nopasswdlogin (the helper asks for it, the path unit repeats it when the password file changes) and the PAM
+                # change that drops nullok, so that only the greeter takes an empty password. From a source checkout the files
+                # are installed from it; on an installed system the package has put them there already.
+                BLANK_SRC="$(dirname -- "$(readlink -f -- "$0")")/../installer"
+                for f in wex-accounts-blank-reconcile wex-blank-pam.sh; do
+                    [ ! -f "$BLANK_SRC/blank/$f" ] || install -m 0755 -o root -g root -- "$BLANK_SRC/blank/$f" "$SYSRUN_DIR/$f"
+                done
+                for f in wex-accounts-blank.service wex-accounts-blank.path; do
+                    [ ! -f "$BLANK_SRC/systemd/$f" ] || install -m 0644 -o root -g root -- "$BLANK_SRC/systemd/$f" /lib/systemd/system/
+                done
+                if [ -x "$SYSRUN_DIR/wex-accounts-blank-reconcile" ] && [ -f /lib/systemd/system/wex-accounts-blank.service ]; then
+                    systemctl daemon-reload
+                    systemctl enable --now wex-accounts-blank.path wex-accounts-blank.service ||
+                        echo "WARNING: the blank-password reconcile did not start (wex-accounts-blank)" >&2
+                    [ ! -x "$SYSRUN_DIR/wex-blank-pam.sh" ] || "$SYSRUN_DIR/wex-blank-pam.sh" apply ||
+                        echo "WARNING: PAM still accepts empty passwords for other stacks than the greeter (wex-blank-pam.sh)" >&2
+                fi
             else
                 echo "NOTE: no accounts helper binary: Local Users and Groups stays unavailable" >&2
             fi

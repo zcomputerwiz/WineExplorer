@@ -111,7 +111,7 @@ def parse_record(body, off):
 
 
 class Rig:
-    def __init__(self, binary, workdir, many=0):
+    def __init__(self, binary, workdir, many=0, groupfile=None):
         self.dir = workdir
         self.binary = binary
         self.log = os.path.join(workdir, 'fake.log')
@@ -123,7 +123,8 @@ class Rig:
         self.address = self.bus.stdout.readline().strip()
         open(self.log, 'w').close()
         self.fake = subprocess.Popen([sys.executable, os.path.join(HERE, 'accountsd-fake-bus.py'), self.address, self.log],
-                                     stdout=subprocess.PIPE, text=True, env=dict(os.environ, FAKE_MANY=str(many)))
+                                     stdout=subprocess.PIPE, text=True,
+                                    env=dict(os.environ, FAKE_MANY=str(many), **({'FAKE_GROUPFILE': groupfile} if groupfile else {})))
         assert self.fake.stdout.readline().strip() == 'READY'
         self.helper = None
 
@@ -210,7 +211,7 @@ def tests_operations(rig):
     check(c.req(frame(CREATE, s('adm') + s('X') + u(0) + s(HASH)))[0] == EXISTS, 'create: a name a group has')
     for bad, why in (('$5$saltsalt$' + 'A' * 86, 'not SHA-512'), ('$6$saltsalt$' + 'A' * 85, 'a short digest'),
                      ('$6$' + 'a' * 17 + '$' + 'A' * 86, 'a long salt'), ('$6$rounds=10$salt$' + 'A' * 86, 'too few rounds'),
-                     ('$6$salt$' + 'A' * 85 + '!', 'a bad character'), ('plain', 'a plain password'), ('', 'empty'),
+                     ('$6$salt$' + 'A' * 85 + '!', 'a bad character'), ('plain', 'a plain password'),
                      ('$6$salt$' + 'A' * 86 + 'x', 'a long digest')):
         check(c.req(frame(CREATE, s('gina') + s('G') + u(0) + s(bad)))[0] == BAD_ARG, 'create: refuses the hash (%s)' % why)
     check(c.req(frame(CREATE, s('gina') + s('G:G') + u(0) + s(HASH)))[0] == BAD_ARG, 'create: a full name with a colon')
@@ -429,6 +430,157 @@ def tests_findings(binary, tmp):
         rig.close()
 
 
+def tests_blank(binary, tmp):
+    """docs/BLANK_PASSWORDS.md: the empty string is a blank password (an empty shadow field that only the greeter takes),
+    never crypt(""); the group nopasswdlogin is kept by the root-run reconcile, which the helper asks for and checks; the
+    atomic create with a disabled flag"""
+    d = os.path.join(tmp, 'blank')
+    os.makedirs(d)
+    os.chmod(d, 0o755)
+    gf = os.path.join(d, 'group')
+    with open(gf, 'w') as f:
+        f.write('sudo:x:27:alice,bob\nnopasswdlogin:x:1234:\n')
+    rig = Rig(binary, d, groupfile=gf)
+    ca = os.path.join(d, 'common-auth')   # a stack that refuses an empty password: no nullok on a pam_unix line
+    with open(ca, 'w') as f:
+        f.write('# here are the per-package modules\nauth\t[success=1 default=ignore]\tpam_unix.so try_first_pass\n'
+                'auth\trequisite\tpam_deny.so\n')
+
+    def members():
+        with open(gf) as f:
+            for line in f:
+                if line.startswith('nopasswdlogin:'):
+                    return [m for m in line.strip().split(':')[3].split(',') if m]
+        return []
+
+    def blank_starts():
+        return sum(1 for x in rig.calls() if x['op'] == 'StartUnit' and x['unit'] == 'wex-accounts-blank.service')
+
+    def ops_of(user):
+        return [(x['op'], x.get('value')) for x in rig.calls() if x.get('user') == user]
+
+    try:
+        extra = ['--group-file', gf, '--common-auth', ca]
+        rig.start_helper(extra=extra)
+        c = rig.connect()
+        check(c.req(frame(LIST, verdict=USER))[0] == OK and blank_starts() == 1, 'blank: the reconcile is asked for once at the first connection')
+        c.close()
+        c = rig.connect()
+        c.req(frame(LIST, verdict=USER))
+        check(blank_starts() == 1, 'blank: and not again for the next connection of the same helper')
+
+        # a blank create: NONE mode, never a hash of the empty string, and the reconcile puts the user in the group
+        st, body = c.req(frame(CREATE, s('gina') + s('Gina') + u(0) + s('')))
+        check(st == OK, 'blank: a create with the empty string (status %s)' % st)
+        check(ops_of('gina') == [('CreateUser', None), ('SetPasswordMode', 2)], 'blank: CreateUser then SetPasswordMode(2), no SetPassword (%s)' % ops_of('gina'))
+        check(members() == ['gina'], 'blank: the reconcile made the user a member of nopasswdlogin (%s)' % members())
+        # a hash after it takes the user out of the group, in the same operation
+        check(c.req(frame(PASSWORD, s('gina') + s(HASH)))[0] == OK, 'blank: a password for the blank account')
+        check(members() == [], 'blank: the user is out of nopasswdlogin after a hash (%s)' % members())
+        # a blank for a user that has a password
+        check(c.req(frame(PASSWORD, s('carol') + s('')))[0] == OK and members() == ['carol'], 'blank: set for an existing user')
+        # a locked account is never given a blank: its field is "!"
+        check(c.req(frame(PASSWORD, s('bob') + s('')))[0] == BAD_ARG, 'blank: refused for a disabled account')
+        check(not any(x['op'] == 'SetPasswordMode' and x['user'] == 'bob' for x in rig.calls()), 'blank: and nothing was changed for it')
+        check(c.req(frame(PASSWORD, s('svc') + s('')))[0] == DENIED, 'blank: a system account is refused')
+        check(c.req(frame(PASSWORD, s('carol') + s('plain')))[0] == BAD_ARG, 'blank: a plain password is still refused')
+        check(c.req(frame(PASSWORD, s('carol') + s(' ')))[0] == BAD_ARG, 'blank: a space is a plain password, not a blank')
+
+        # the atomic create: disabled in the one operation, blank or not
+        st, body = c.req(frame(CREATE, s('hank') + s('Hank') + u(0) + s('') + u(1)))
+        rec = parse_record(body, 0)[0] if st == OK else None
+        check(st == OK and rec['locked'] == 1, 'create: blank and disabled at once (status %s)' % st)
+        check(ops_of('hank') == [('CreateUser', None), ('SetPasswordMode', 2), ('SetLocked', True)],
+              'create: blank, then locked, nothing enabled in between (%s)' % ops_of('hank'))
+        check('hank' not in members(), 'create: a disabled blank account is not in nopasswdlogin')
+        st, body = c.req(frame(CREATE, s('ida') + s('Ida') + u(1) + s(HASH) + u(1)))
+        rec = parse_record(body, 0)[0] if st == OK else None
+        check(st == OK and rec['locked'] == 1 and rec['type'] == 1, 'create: a disabled administrator with a password')
+        check([o for o, _ in ops_of('ida')] == ['CreateUser', 'SetPassword', 'SetAccountType', 'SetLocked'], 'create: the disabled flag is the last step (%s)' % ops_of('ida'))
+        st, body = c.req(frame(CREATE, s('joe') + s('Joe') + u(0) + s(HASH) + u(0)))
+        check(st == OK and parse_record(body, 0)[0]['locked'] == 0, 'create: an explicit enabled flag')
+        check(c.req(frame(CREATE, s('kim') + s('K') + u(0) + s(HASH) + u(2)))[0] == BAD_REQUEST, 'create: a bad disabled flag is refused')
+        check(c.req(frame(CREATE, s('kim') + s('K') + u(0) + s(HASH) + b'xy'))[0] == BAD_REQUEST, 'create: bytes after the flag are refused')
+        check(c.req(frame(CREATE, s('kim') + s('K') + u(0) + s(HASH) + u(1) + u(1)))[0] == BAD_REQUEST, 'create: two flags are refused')
+        check(c.req(frame(GET, s('kim'), verdict=USER))[0] == NOT_FOUND, 'create: and nothing was made by those')
+        # enabling a disabled blank account: the real usermod -U leaves "!" and AccountsService says success, so the account is still
+        # locked after the unlock: the helper makes it blank again and unlocks it (a hash account is unlocked in one call)
+        n0 = len(ops_of('hank'))
+        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == BAD_ARG, 'enable: a disabled account without a password is refused (set a password first)')
+        tail = ops_of('hank')[n0:]
+        check(tail == [('SetLocked', False)], 'enable: nothing is made blank again (%s)' % tail)
+        check(parse_record(c.req(frame(GET, s('hank'), verdict=USER))[1], 0)[0]['locked'] == 1, 'enable: it stays disabled')
+        check(c.req(frame(PASSWORD, s('hank') + s('')))[0] == BAD_ARG, 'enable: a blank password is refused for it while it is disabled')
+        n1 = len(ops_of('ida'))
+        check(c.req(frame(LOCKED, s('ida') + u(0)))[0] == OK and ops_of('ida')[n1:] == [('SetLocked', False)],
+              'enable: an account with a password is unlocked in one call, its password untouched')
+        check(c.req(frame(PASSWORD, s('hank') + s(HASH2)))[0] == OK and c.req(frame(LOCKED, s('hank') + u(0)))[0] == OK and
+              'hank' not in members(), 'enable: with a password it is enabled')
+
+        # a failure of a step takes the new account away again
+        with open(rig.log + '.fail', 'w') as f:
+            f.write('SetLocked')
+        r = c.req(frame(CREATE, s('lou') + s('Lou') + u(0) + s('') + u(1)))
+        os.unlink(rig.log + '.fail')
+        check(r is not None and r[0] not in (OK, DENIED), 'create: a blank disabled create fails when the lock fails (status %s)' % (r and r[0]))
+        check(c.req(frame(GET, s('lou'), verdict=USER))[0] == NOT_FOUND, 'create: the half-made user is gone')
+        with open(rig.log + '.fail', 'w') as f:
+            f.write('SetPasswordMode')
+        r = c.req(frame(CREATE, s('lou') + s('Lou') + u(0) + s('')))
+        os.unlink(rig.log + '.fail')
+        check(r is not None and r[0] not in (OK, DENIED) and c.req(frame(GET, s('lou'), verdict=USER))[0] == NOT_FOUND,
+              'create: and when SetPasswordMode fails')
+
+        # the reconcile did not run: a blank that did not reach the group is not reported as done (fail safe: the greeter refuses it)
+        open(rig.log + '.noreconcile', 'w').close()
+        t0 = time.time()
+        r = c.req(frame(CREATE, s('max') + s('Max') + u(0) + s('')))
+        check(r is not None and r[0] == BUSY and 7 <= time.time() - t0 <= 12, 'create: a blank that never reached the group fails (status %s)' % (r and r[0]))
+        check(c.req(frame(GET, s('max'), verdict=USER))[0] == NOT_FOUND, 'create: and the account is taken away again')
+        # a password that did not take the user out of the group is reported, not hidden
+        r = c.req(frame(PASSWORD, s('carol') + s(HASH)))
+        check(r is not None and r[0] == BUSY, 'password: a hash for a member that stays a member fails (status %s)' % (r and r[0]))
+        os.unlink(rig.log + '.noreconcile')
+        check(c.req(frame(PASSWORD, s('carol') + s(HASH)))[0] == OK and members() == [], 'password: and succeeds once the reconcile works')
+        c.close()
+        # fail closed: while a pam_unix line of the common stack has nullok (or the stack cannot be read) a blank is refused, a hash is not
+        n_before = len(rig.calls())
+        c = rig.connect()
+        for text, why in (('auth\t[success=1 default=ignore]\tpam_unix.so nullok try_first_pass\n', 'nullok'),
+                          ('  auth [success=1] pam_unix.so nullok_secure\n', 'nullok_secure'), (None, 'no file')):
+            if text is None:
+                os.rename(ca, ca + '.gone')
+            else:
+                with open(ca, 'w') as f:
+                    f.write(text)
+            r = c.req(frame(CREATE, s('nia') + s('N') + u(0) + s('')))
+            check(r is not None and r[0] == 11, 'fail closed: a blank create is refused (%s): status %s' % (why, r and r[0]))
+            r = c.req(frame(PASSWORD, s('joe') + s('')))
+            check(r is not None and r[0] == 11, 'fail closed: a blank password change is refused (%s)' % why)
+            check(c.req(frame(PASSWORD, s('joe') + s(HASH2)))[0] == OK, 'fail closed: a hash is not refused (%s)' % why)
+            if text is None:
+                os.rename(ca + '.gone', ca)
+        check(not any(x.get('user') == 'nia' for x in rig.calls()[n_before:]) and
+              not any(x['op'] == 'SetPasswordMode' for x in rig.calls()[n_before:]), 'fail closed: nothing was created or made blank')
+        with open(ca, 'w') as f:
+            f.write('# auth [success=1] pam_unix.so nullok  (a comment)\nauth [success=1] pam_unix.so try_first_pass\n')
+        check(c.req(frame(CREATE, s('nia') + s('N') + u(0) + s('')))[0] == OK, 'fail closed: a commented nullok does not count')
+        c.close()
+        # a restarted helper asks for the reconcile again
+        before = blank_starts()
+        rig.start_helper(extra=extra)
+        c = rig.connect()
+        c.req(frame(LIST, verdict=USER))
+        check(blank_starts() == before + 1, 'blank: a restarted helper asks for the reconcile again')
+        c.close()
+        rig.stop_helper()
+        with open(rig.helper_log) as f:
+            text = f.read()
+        check(HASH not in text and HASH2 not in text, 'blank: no hash in the helper log')
+    finally:
+        rig.close()
+
+
 def main():
     binary = sys.argv[1] if len(sys.argv) > 1 else None
     tmp = tempfile.mkdtemp(prefix='accountsd-')
@@ -449,6 +601,7 @@ def main():
         check("op 4 verdict 2" in text and "user 'eve'" in text, 'the helper logs a line per request')
         tests_peer(rig, binary)
         tests_findings(binary, tmp)
+        tests_blank(binary, tmp)
     finally:
         rig.close()
     print('%d failure(s)' % failures if failures else 'accountsd=PASS')

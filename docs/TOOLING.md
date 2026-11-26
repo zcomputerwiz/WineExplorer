@@ -202,7 +202,7 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   tarball of this branch's Wine unpacked over `/` first and the machine root updated, as the Wine package's
   postinst does, and `waylandsafe` and `waylandcmd`, the Wayland session, only when named), each checked on the
   screen (OCR) and over the
-  serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
+  serial console as `WEX_TEST_USER` (default `wineuser`, a password generated at provisioning unless `WEX_TEST_PASSWORD_FILE`: blank passwords log on at the greeter only, so the serial login and `sudo -S` cannot use an empty one; `wexhidden` stays blank; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
   overlay for its boot and puts it back. `vfailed` holds LightDM back 90 seconds with a drop-in it removes
   afterwards, presses the VM's Reset button (`vmtest.py reset`) once the serial console answers, and boots three

@@ -226,7 +226,7 @@ static BOOL wait_for_map( HANDLE pipe, unsigned long long before )
  * U a u32; "?" before a letter makes the rest optional */
 static const char *const body_shapes[WEXA_OP_LAST] =
 {
-    [WEXA_LIST_USERS] = "?U", [WEXA_GET_USER] = "S", [WEXA_ADMIN_MEMBERS] = "?U", [WEXA_CREATE_USER] = "SSUS",
+    [WEXA_LIST_USERS] = "?U", [WEXA_GET_USER] = "S", [WEXA_ADMIN_MEMBERS] = "?U", [WEXA_CREATE_USER] = "SSUS?U",
     [WEXA_DELETE_USER] = "S", [WEXA_RENAME_USER] = "SS", [WEXA_SET_FULLNAME] = "SS", [WEXA_SET_LOCKED] = "SU",
     [WEXA_SET_TYPE] = "SU", [WEXA_SET_PASSWORD] = "SS", [WEXA_START_SYNC] = ""
 };
