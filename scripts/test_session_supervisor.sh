@@ -101,6 +101,22 @@ rc=0; wex_run_shell "$FIXTURE/shell" > "$FIXTURE/out" 2>&1 || rc=$?
 grep -q 'not starting it again' "$FIXTURE/out" || fail 'crash loop: no log line for the guard'
 echo 'restarts_with_loop_guard=PASS'
 
+# B125: the Wayland session script runs under "set -e" and calls wex_run_shell bare; a shell killed with -9 ends with a
+# status other than 0 there (137), and the supervisor must not end the script on the failing wait
+reset
+cat > "$FIXTURE/shell_nz" <<SH
+#!/bin/bash
+d=\$(dirname "\$0")
+echo run >> "\$d/runs"
+[ "\$(wc -l < "\$d/runs")" -ge 2 ] && touch "$MARKER"
+exit 137
+SH
+chmod +x "$FIXTURE/shell_nz"
+WEX_LIB_DIR="$SCRIPT_DIR/lib" bash -c 'set -e; . "$1/wine-explorer-session-common.sh"; wex_run_shell "$2"; echo "after $?"' _ "$SCRIPT_DIR" "$FIXTURE/shell_nz" > "$FIXTURE/out" 2>&1 || true
+[ "$(runs)" = 2 ] || fail "set -e, a shell ending with status 137: $(runs) starts, not 2"
+grep -q 'starting it again' "$FIXTURE/out" || fail 'set -e: the supervisor did not restart the shell'
+echo 'restarts_under_set_e=PASS'
+
 # another shell of the account runs in the gap: no restart while it runs, one after it ends
 reset; touch "$FIXTURE/other"
 ( sleep 1; rm -f "$FIXTURE/other"; touch "$MARKER.later" ) &

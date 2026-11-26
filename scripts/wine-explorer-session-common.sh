@@ -232,8 +232,8 @@ wex_run_shell()
     while :; do
         "$@" &
         child=$!
-        wait "$child"; rc=$?
-        while kill -0 "$child" 2>/dev/null; do wait "$child"; rc=$?; done
+        rc=0; wait "$child" || rc=$?
+        while kill -0 "$child" 2>/dev/null; do wait "$child" || rc=$?; done
         child=
         [ "$stopping" = 0 ] || { trap - TERM HUP INT; return "$rc"; }
         # Log Off without logind ends the shell at once after starting wineboot (msgina: ExitWindowsEx, then ExitProcess),
