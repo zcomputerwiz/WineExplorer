@@ -276,6 +276,35 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          and edit threads) is the other candidate.
        * Tracer trap: `combase.dll!RoGetActivationFactory` with `R` (return breakpoint) hung the first Notepad process before its
          restart (nested activations on one thread); trace activations with `_H` and no `R`.
+     - **What precedes InputSite on Windows, and where Wine's UI thread stops re-arming (2026-11-27; Windows `wt-isite`, `wt-cwp`,
+       `wt-nomouse`, `wt-cpaint`, `wt-ord`, `wt-rmx`; lab b37; exported calls only).**
+       * Ruled out as the trigger: pointer input (with the pointer parked outside Notepad the whole run there are no mouse messages
+         and InputSite still comes, then the TabView templates); the WM_PAINT of the three `Microsoft.UI.Input` child windows
+         (class atom 0xc272/0xc047, `WS_CHILD`, `WS_EX_NOREDIRECTIONBITMAP`): it goes to DefWindowProc on Windows too, as in Wine;
+         the `MSCTFIME UI` window's timer (InputSite comes before it in other runs); user-mode removal of completions (no thread
+         calls `NtRemoveIoCompletion(Ex)` on an Init2 port; the kernel alone turns completions into the (1, 0) wake); the user32
+         ordinal wrappers (#2669/#2670/#2582 pass their arguments through to win32u and return what win32u returns; #2670 returns 1
+         on Windows as in Wine; the odd r8/r9 values of `#2670(hwnd, 0, ...)` are leftover registers).
+       * Over a whole Windows run the UI thread signals the input thread's event only five times before InputSite: the first one
+         (start-up) is the one Wine also sends; the later four come from the UI thread's CoreMessaging dispatcher rounds about 6 s
+         later, after the UI thread has re-armed its own wake packet.
+       * **The UI thread has the same gap as the input thread.** Windows and Wine both run the round that registers a batch of
+         seven wait packets on the UI thread's Init2 port. Then Windows: `#2670(hwnd, 0)` -> 1, `NtAssociateWaitCompletionPacket`
+         (the UI thread's own wake packet, again), flush -> a work list; from then on every round re-arms it and the rounds go on for
+         seconds (about 120 self-posted (6)). Wine: `#2670(hwnd, 0)` -> 1, flush -> empty, no re-arm; its rounds stop about one second
+         after start-up (b37: last 0x60 at 609.551) and the thread only pumps window messages from then on. Same calls, same
+         results at the export level, different decision inside CoreMessagingXP. Since neither the drain's result nor its buffers
+         nor a removal can tell CoreMessagingXP which packet fired, the open candidates are timing and order: when the kernel
+         posts the (1, 0) (Wine posts it only when the thread next waits, after everything already queued), and whether the work
+         list was filled before the round (Windows: the flush after the re-arm returns a list; Wine: empty).
+       * `wakeorder-probe.c` (M1, signal while the thread is busy, M2, then retrieval): a plain window on Windows gets the wake as
+         a sent (3, 0) inside `GetQueueStatus`, so a plain window cannot show where the posted (1, 0) of CoreMessagingXP's windows
+         lands. What makes the kernel choose (1, 0) for CoreMessagingXP's windows is still not known (`drain3-probe.c` with the
+         timer and (5, 5) set-up also gets (3, 0)).
+       * Next: find the (1, 0) condition with a probe that copies more of CoreMessagingXP's set-up (the second packet on a waitable
+         timer, the private port, `SystemUserAdapterWindowClass`-style second window, `DcppUserAdapterWindowClass` style), then
+         measure where the (1, 0) lands; if Windows posts it at completion time, post it from wineserver when the packet completes
+         (the queue already knows its port).
      - **When Windows starts a thread's text services, and the Wine side (2026-11-26, night; `tests/uwp/alpc/tsf-probe.c`).**
        * Windows 11 (probe, one new thread per case): `msctf.dll` is loaded with the thread's first window (with its `IME` window).
          The thread manager (`TF_GetThreadMgr` non-NULL), `CicMarshalWndClass`, `OleMainThreadWndClass` (an apartment),
