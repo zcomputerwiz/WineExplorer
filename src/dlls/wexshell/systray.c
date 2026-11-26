@@ -36,6 +36,7 @@
 #include "resource.h"
 #include "wexhost.h"
 #include "wexwayland.h"
+#include "linux_windows.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
@@ -2074,6 +2075,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 {
     if (enable_taskbar && toolbars_task_gripper_message(hwnd, msg, wparam, lparam))
         return msg == WM_SETCURSOR ? TRUE : 0;
+    {
+        /* the taskbar's surface hears the output's scale change too: convert every window's placement (Wayland), once */
+        static UINT scale_message;
+        if (!scale_message) scale_message = RegisterWindowMessageW( L"WineExplorer.WaylandScaleChanged" );
+        if (msg == scale_message) wex_scale_changed( wparam );
+    }
     switch (msg)
     {
     case WM_DESTROY:

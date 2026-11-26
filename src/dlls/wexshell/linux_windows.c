@@ -65,7 +65,7 @@ struct linux_window
     HWND   host;
     BOOL   managed;         /* placed into the host */
     BOOL   reconciling, state_pending;
-    BOOL   interactive, geometry_pending;
+    BOOL   interactive, geometry_pending, scale_hold;   /* scale_hold: a scale change owns the placement for now */
     RECT   requested_geometry, observed_geometry;
     WEX_WM_EVENT native_snapshot; /* logical compositor coordinates */
     DWORD  geometry_requested_at;
@@ -574,9 +574,17 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     /* An observation queued before a local move must not undo that move.
      * Keep requests separate until acknowledged, while allowing recovery from
      * a compositor/client that never reaches the requested geometry. */
+    /* After a scale change the shell's own placement is authoritative (wex_scale_changed): the native client's
+     * rectangle answers it, with the size the client chose, and is not allowed to write the placement back before
+     * it has caught up (the usual two seconds are too short for a client that snaps its size). */
     if (lw->geometry_pending && (EqualRect(&lw->requested_geometry,&event->rect) ||
-        (!lw->interactive && (DWORD)(GetTickCount()-lw->geometry_requested_at)>=2000)))
+        (lw->scale_hold && abs(event->rect.left-lw->requested_geometry.left)<=2 &&
+         abs(event->rect.top-lw->requested_geometry.top)<=2) ||
+        (!lw->interactive && (DWORD)(GetTickCount()-lw->geometry_requested_at)>=(lw->scale_hold ? 10000 : 2000))))
+    {
         lw->geometry_pending=FALSE;
+        lw->scale_hold=FALSE;
+    }
     if (!minimized && !lw->interactive && !lw->geometry_pending &&
         ((lw->flags & WEX_WM_NO_BORDER) ||
          !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))))
@@ -764,6 +772,50 @@ static void limit_size( HWND hwnd, SIZE client, POINT *limit )
     if (client.cy > 0) limit->y = rect.bottom - rect.top;
 }
 
+/* Placement across an output scale change has ONE owner: the shell, here. (A Wayland session; docs/WAYLAND_DEFAULT.md,
+ * "Restored live scaling".) Windows' own rule for a Per-Monitor-V2 window is the model: the window keeps its top left
+ * and its device-independent size, so its physical size follows the scale ratio (WM_DPICHANGED's suggested rectangle).
+ * Every normal top-level window is converted by the ratio around its top left, hosted frames and plain Wine windows
+ * alike. The compositor and the driver follow what the shell sets (the hosted native client answers with the size it
+ * chooses); nobody else writes placement during a scale change. Before, a plain window kept its physical size, a hosted
+ * frame took the native rectangle in the compositor's logical coordinates, and the two directions of a change used
+ * different models, so the factor compounded. Windows that are minimized, maximized or fullscreen keep their own policy. */
+/* 120ths: the scale the placement was last converted to. A session starts at 100%: the driver posts no message while a
+ * surface's scale stays at its initial 1.0, so the first message we see is already a change. */
+static UINT applied_scale = 120;
+
+static BOOL CALLBACK scale_window( HWND hwnd, LPARAM lparam )
+{
+    const UINT *scales = (const UINT *)lparam;   /* old, new */
+    DWORD style = GetWindowLongW( hwnd, GWL_STYLE );
+    RECT rect, monitor;
+    int width, height;
+
+    if (!IsWindowVisible( hwnd ) || (style & WS_CAPTION) != WS_CAPTION || IsIconic( hwnd ) || IsZoomed( hwnd )) return TRUE;
+    if (GetWindow( hwnd, GW_OWNER ) && (GetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_TOOLWINDOW)) return TRUE;
+    if (!GetWindowRect( hwnd, &rect )) return TRUE;
+    SetRect( &monitor, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );
+    if (rect.left <= 0 && rect.top <= 0 && rect.right >= monitor.right && rect.bottom >= monitor.bottom) return TRUE;
+    width = MulDiv( rect.right - rect.left, scales[1], scales[0] );
+    height = MulDiv( rect.bottom - rect.top, scales[1], scales[0] );
+    TRACE( "window %p %s -> %dx%d at the same top left\n", hwnd, wine_dbgstr_rect( &rect ), width, height );
+    SetWindowPos( hwnd, NULL, rect.left, rect.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER );
+    return TRUE;
+}
+
+/* The output scale is now `scale` (120ths): convert every window's placement once per change, whoever notices first
+ * (a hosted frame's or the taskbar's scale message). */
+void wex_scale_changed( UINT scale )
+{
+    UINT scales[2];
+
+    if (!scale || scale == applied_scale) return;
+    scales[0] = applied_scale;
+    scales[1] = scale;
+    applied_scale = scale;
+    EnumWindows( scale_window, (LPARAM)scales );
+}
+
 static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 {
     struct linux_window *lw = (struct linux_window *)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
@@ -776,6 +828,7 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
          * native observation is in the previous logical coordinate space;
          * multiplying it by the new scale would enlarge and move the frame
          * before the driver's coordinated layout update can complete. */
+        wex_scale_changed( wp );   /* converts every window's placement (once per change); this frame's included */
         if (!(lw->flags & WEX_WM_NO_BORDER) &&
             (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE)
         {
@@ -783,6 +836,7 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
             lw->requested_geometry=screen;
             lw->geometry_requested_at=GetTickCount();
             lw->geometry_pending=TRUE;
+            lw->scale_hold=TRUE;
         }
         else lw->geometry_pending = FALSE;
         observe_wayland_window(lw,&lw->native_snapshot);

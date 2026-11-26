@@ -25,6 +25,8 @@
 
 void linux_windows_start(void);
 void linux_windows_stop(void);
+/* The output scale is now SCALE (120ths): the shell converts every window's placement, once per change (Wayland). */
+void wex_scale_changed(UINT scale);
 /* Return an owned icon from X11 pixels, including windows of other Wine processes. */
 HICON linux_windows_copy_icon(HWND hwnd, DWORD size);
 
