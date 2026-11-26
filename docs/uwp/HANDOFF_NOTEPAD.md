@@ -305,6 +305,17 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          timer, the private port, `SystemUserAdapterWindowClass`-style second window, `DcppUserAdapterWindowClass` style), then
          measure where the (1, 0) lands; if Windows posts it at completion time, post it from wineserver when the packet completes
          (the queue already knows its port).
+     - **InputSite under Wine (2026-11-27, late; lab b41; Wine `claude/inputhost` 08192783 from the InputSite session, diagnostic re-arm on).**
+       * With the module and its classes registered by hand in the prefix (ActivatableClassId, both views; `inputhost.dll` has no
+         DllRegisterServer and `wineboot -u` hangs with the lab build), Notepad's input thread runs the whole sequence three times as
+         on Windows: factory {8ca0442d}, CreateForHost with sinks 0x3b4/0x408/0x454 (the app's host answers {92179cc0}), the site asked
+         for {f77d91d0}, ActivationConfigurationInputObject {4c8421ca} CreateForInputSite, put_Setting1(0), put_Setting2(0). No
+         unknown interface, no fail-fast.
+       * After it (750.0) the CoreMessaging rounds on both threads stop again; no page load (1 clock call, no surfaces). On
+         Windows InputHost itself activates `Windows.System.DispatcherQueue` here and creates a `SystemUserAdapterWindowClass`
+         window with an Init2 registration on the input thread; the Wine module does not. Next: what the rounds wait for after
+         InputSite.
+       * Lab trap: the guest's disk filled up (79 GB); old relay logs b26d..b36 and from.log are now gzipped in place.
      - **The re-arm is the gate, InputSite is next (2026-11-27, night; lab b39, diagnostic only).**
        * Diagnostic (lab tree only, never for a branch; `rearm-diag.py` in the session scratchpad, env `WINE_CM_REARM=1`): ntdll
          records every `NtAssociateWaitCompletionPacket` (packet, port, target, key); win32u remembers the key of the zero-APC
