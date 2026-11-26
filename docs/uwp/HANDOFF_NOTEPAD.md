@@ -313,6 +313,13 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        * b39 with it: the input thread's wake packet (0x2dc) is re-armed 11 times and the UI thread's (0x118) and two batch packets
          too (all status 0); the CoreMessaging rounds go on; at 350164.503 the input thread activates
          `Windows.UI.Internal.Input.InputSite` and 35 ms later fail-fasts (WIL error path) because Wine has no such class.
+       * Ruled out on Windows as the source of the re-arm decision or of the (1, 0) form (2026-11-27, night): the extra
+         arguments of ordinal 2582 (ignored; always a (0, 0), `sched3-probe.c`); waits or object queries between the drain and the
+         re-arm (none on the input thread, `wt-waits`); a re-arm by the kernel (a wait packet on an Init2 port is one-shot on
+         Windows too, `drain3-probe.c` mode 0); the window class (`DcppUserAdapterWindowClass` / `SystemUserAdapterWindowClass`
+         still get a sent (3, 0)) and the procedure's return value for (3, 0) (`wakeorder-probe.c CLASS RET`). In this run Windows'
+         input thread re-armed inside its first (1, 0) handler (drain with buffers, then associate), in others only from a later
+         round, so the decision depends on CoreMessagingXP's own state at that moment.
        * So: the missing re-arm is what stops Notepad, and InputSite (being built on `claude/uwp-inputsite`, Windows 10 serves the
          `{8ca0442d}` factory interface that this path asks for) is the next blocker. The proper re-arm mechanism (what makes
          CoreMessagingXP re-arm on Windows) is still unknown; the diagnostic re-arms after every (1, 0), Windows re-arms from the

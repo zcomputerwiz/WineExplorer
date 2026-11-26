@@ -19,6 +19,8 @@ static create_t pCreate;
 static assoc_t pAssoc;
 static HANDLE g_event;
 static char order[512];
+static const WCHAR *class_name = L"WakeOrderProbe";
+static LRESULT ret3 = 0;   /* what the procedure returns for (3, x) */
 static const char *where = "?";
 
 #define M1 (WM_APP + 1)
@@ -32,7 +34,7 @@ static void note(const char *s)
 static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     char buf[64];
-    if (m == 0x60) { sprintf(buf, "proc(0x60,%llx)@%s", (unsigned long long)w, where); note(buf); return 0; }
+    if (m == 0x60) { sprintf(buf, "proc(0x60,%llx)@%s", (unsigned long long)w, where); note(buf); return w == 3 ? ret3 : 0; }
     if (m == M1) { note("M1"); return 0; }
     if (m == M2) { note("M2"); return 0; }
     return DefWindowProcW(h, m, w, l);
@@ -66,9 +68,9 @@ static DWORD WINAPI run(void *arg)
     DWORD st;
 
     InitializeObjectAttributes(&oa, NULL, 0, NULL, NULL);
-    wc.lpfnWndProc = wndproc; wc.hInstance = GetModuleHandleW(NULL); wc.lpszClassName = L"WakeOrderProbe";
+    wc.lpfnWndProc = wndproc; wc.hInstance = GetModuleHandleW(NULL); wc.lpszClassName = class_name;
     RegisterClassW(&wc);
-    hwnd = CreateWindowExW(0, L"WakeOrderProbe", NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
+    hwnd = CreateWindowExW(0, class_name, NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
     port = (HANDLE)p2669(hwnd, &out);
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     pCreate(&packet, 1, &oa);
@@ -93,7 +95,7 @@ static DWORD WINAPI run(void *arg)
     return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     HANDLE th;
@@ -103,6 +105,9 @@ int main(void)
     pAssoc = (assoc_t)GetProcAddress(ntdll, "NtAssociateWaitCompletionPacket");
     if (!p2669 || !pCreate || !pAssoc) { printf("missing entry points\n"); return 1; }
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (argc > 2) ret3 = (LRESULT)_strtoi64(argv[2], NULL, 0);
+    if (argc > 1) { static WCHAR name[64]; MultiByteToWideChar(CP_ACP, 0, argv[1], -1, name, 64); class_name = name; }
+    printf("class %ls, (3,x) returns %lld\n", class_name, (long long)ret3);
     th = CreateThread(NULL, 0, run, NULL, 0, NULL);
     WaitForSingleObject(th, 10000);
     return 0;
