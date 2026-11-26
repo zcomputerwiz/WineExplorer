@@ -2694,6 +2694,10 @@ class TestBoot1(TempDirTest):
         path = self.tmp / "systemctl.log"
         return path.read_text(encoding="ascii").splitlines() if path.exists() else []
 
+    def systemctl_changes(self):
+        """The systemctl calls that change something (not the bless queries, B123)."""
+        return [line for line in self.systemctl_log() if not line.startswith("is-active ")]
+
     def with_vintner(self, menu=0, options=("quiet",), code=0, reply=None):
         """A `vintner` that logs its arguments; menu-timeout and cmdline show answer from MENU and OPTIONS, a set
         answers REPLY (JSON) and exits with CODE."""
@@ -2731,6 +2735,46 @@ class TestBoot1(TempDirTest):
         self.assertTrue(values["AutoRestart"])
         self.assertEqual(self.vintner_log(), ["menu-timeout --json", "cmdline --json show"])
 
+    def test_menu_timeout_waits_for_the_bless(self):
+        """B123: right after a start vintner-bless.service holds boot storage and the ESP read-write, and vintner's
+        read-only mount fails. The read waits while the bless runs, and a failed read is tried once more after it."""
+        helper = self.tmp / "fake-vintner"
+        answer = json.dumps({"ok": True, "firmware": "uefi", "timeout": 5, "uefi": 5})
+        busy = json.dumps({"code": "failed", "error": "bootstorage: mount: device or resource busy"})
+        helper.write_text("#!/bin/sh\n"
+                          f'echo "$@" >> "{self.tmp}/vintner.log"\n'
+                          f'if [ ! -e "{self.tmp}/tried" ]; then : > "{self.tmp}/tried"; echo \'{busy}\'; exit 1; fi\n'
+                          f"echo '{answer}'\n", encoding="ascii")
+        helper.chmod(0o755)
+        self.boot.VINTNER = str(helper)
+        # the bless reports "activating" for its first two queries, then "inactive"
+        state = self.tmp / "bless-queries"
+        systemctl = self.tmp / "fake-systemctl"
+        systemctl.write_text("#!/bin/sh\n"
+                             f'echo "$@" >> "{self.tmp}/systemctl.log"\n'
+                             f'echo x >> "{state}"\n'
+                             f'if [ "$(wc -l < "{state}")" -le 2 ]; then echo activating; exit 3; fi\n'
+                             "echo inactive\nexit 3\n", encoding="ascii")
+        systemctl.chmod(0o755)
+        self.boot.SYSTEMCTL = str(systemctl)
+        sleeps = []
+        self.assertEqual(self.boot.menu_timeout(sleep=sleeps.append), (True, 5))
+        self.assertEqual(self.vintner_log(), ["menu-timeout --json", "menu-timeout --json"])
+        self.assertEqual(sleeps, [1, 1])
+        self.assertTrue(all(line == "is-active vintner-bless.service" for line in self.systemctl_log()))
+
+    def test_menu_timeout_gives_up_after_the_bless(self):
+        """A read that fails twice is a failure: no loader, as before (no endless wait)."""
+        self.with_vintner(menu=0)
+        helper = self.tmp / "fake-vintner"
+        helper.write_text("#!/bin/sh\n"
+                          f'echo "$@" >> "{self.tmp}/vintner.log"\n'
+                          "echo '{\"code\": \"failed\", \"error\": \"busy\"}'\nexit 1\n", encoding="ascii")
+        sleeps = []
+        self.assertEqual(self.boot.menu_timeout(sleep=sleeps.append), (False, 0))
+        self.assertEqual(self.vintner_log(), ["menu-timeout --json", "menu-timeout --json"])
+        self.assertEqual(sleeps, [])
+
     def test_apply_changes_only_what_differs(self):
         self.with_vintner(menu=0)
         self.boot.apply(0, True, 30, False)
@@ -2745,12 +2789,12 @@ class TestBoot1(TempDirTest):
         self.assertEqual((self.tmp / "panic").read_text(encoding="ascii"), "10\n")    # the running kernel too
         # and a crash of systemd itself, which rereads system.conf.d at once
         self.assertIn("[Manager]\nCrashAction=reboot\n", Path(self.boot.CRASH_CONF).read_text(encoding="utf-8"))
-        self.assertEqual(self.systemctl_log(), ["daemon-reload"])
+        self.assertEqual(self.systemctl_changes(), ["daemon-reload"])
         self.assertTrue(self.boot.auto_restart())
         self.boot.apply(30, True, 7, False)
         self.assertIn("kernel.panic = 0\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
         self.assertIn("CrashAction=freeze\n", Path(self.boot.CRASH_CONF).read_text(encoding="utf-8"))
-        self.assertEqual(self.systemctl_log(), ["daemon-reload"] * 2)
+        self.assertEqual(self.systemctl_changes(), ["daemon-reload"] * 2)
         self.assertFalse(self.boot.auto_restart())
         # recovery options turned off keep their seconds, as XP keeps bootstat.dat's byte 9
         self.boot.apply(30, False, 7, False)
