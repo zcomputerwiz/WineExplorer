@@ -209,6 +209,12 @@ way.
        commit, and then takes whatever size the client has, in one step: an adopt operation for a group that has no scene
        (today `configure_foreign` without a scene only tries `commit_foreign`, which requires matching dimensions and does
        not move anything). Not done.
+     - **First attempt at that adopt operation (not shipped):** on `configure_foreign` for a group dropped before
+       (a `group_dropped` flag on the frame), compose the pair at the native client's current size, which puts the native
+       view at the frame's client origin, then run the layout transaction to the requested size. It was worse than the
+       accept-committed-size change alone: 24 of 48 checks fail over 8 runs (against 11 of 48), and many runs end at 100%
+       with the native window at the 150% position and size (780,470)-(1175,716). The group composes at a stale
+       position or size; the trace of that case is not taken yet.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
