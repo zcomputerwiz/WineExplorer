@@ -192,6 +192,23 @@ way.
        one-line one: either the transaction accepts the size the native client chose within its hints (and the frame
        follows it), or the re-adoption takes Wine's physical placement as authoritative and converts it to the new
        scale. Neither is done; each must pass `wayland-scale-cycle.sh` ten times in a row before it ships.
+     - **Results of the attempts (2026-11-26, 3 cycles = 6 checks per run):** baseline about half of the checks fail
+       (18 of 36 over six traced runs). Driver retry on `not_ready` (3 retries): 11 of 30 fail, no better. **Accepting the
+       committed size in `reconfigure_commit`** (wexcomp `claude/scale-accept-committed-size` 5140bae7: the native
+       client's committed size becomes the client rectangle, the frame follows, at most twice): 11 of 48 fail over 8
+       runs, 4 of 8 runs pass completely; the compositor suite stays 63/63. That removes the transaction timeouts but
+       not the item. Also following a native client's *own* later resize (keeping the group instead of dropping it in
+       `native_committed`) was worse: 19 of 36 fail, with new modes (window at the bottom right edge), because the frame
+       and the terminal chase each other's snapped sizes.
+     - **What remains (traced):** after the transaction completes, foot re-snaps by itself (160x101 -> 144x104, or
+       126x104 on the next cycle), `native_committed` sees a size that differs from the group's client rectangle and drops
+       the group; the driver's re-adoption request carries Wine's physical rectangle, which no longer matches, so it is
+       answered `not_ready` twice; then the Wine frame follows the native window (still at the other scale's logical
+       position) and the group re-forms there. The native window's *position* was never restored. What is needed is a
+       re-adoption that moves the native view to the frame's client origin (Wine's placement authoritative) before the
+       commit, and then takes whatever size the client has, in one step: an adopt operation for a group that has no scene
+       (today `configure_foreign` without a scene only tries `commit_foreign`, which requires matching dimensions and does
+       not move anything). Not done.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
