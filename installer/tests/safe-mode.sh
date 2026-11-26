@@ -2552,6 +2552,8 @@ echo "wexhidden=$?"
 # the first boot of a phase writes /etc/group and /etc/gshadow and "the boot changed files under /etc" (batch 1147)
 if [ -x /usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile ]; then
     /usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile; echo "blankreconcile=$?"
+else
+    echo "blankreconcile=missing"
 fi
 mkdir -p /var/lib/AccountsService/users
 printf '[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n' > /var/lib/AccountsService/users/wexhidden
