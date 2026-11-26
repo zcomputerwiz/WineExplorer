@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 # LightDM's optional Wayland session. PAM/logind owns the runtime directory/VT.
-set -e
+set -eE
+# a command failing here ends the session (lightdm then shows nothing): the log says which one (B126)
+trap 'echo "The session script stopped: status $? at line $LINENO ($BASH_COMMAND)" >&2' ERR
 . "$(dirname "$0")/wine-explorer-session-common.sh"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wineexplorer-wayland"
 mkdir -p "$state"
@@ -94,7 +96,7 @@ export WINELOADER="$WINE" WINESERVER="$server_bin"
 wex_prepare_prefix || { echo 'Session setup failed.' >&2; exit 1; }
 # The shell and all Wine children use the private endpoint. Native desktop-file
 # launches obtain the public endpoints through wexhost's compositor inventory.
-"$WINE" reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11,wayland /f
+"$WINE" reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11,wayland /f || echo "Warning: the graphics driver setting was not written (status $?)" >&2
 # The first client performs any required prefix update. Stop its bare desktop
 # before starting Explorer as the shell; do not force a reinstall on every login.
 wex_stop_wine || true
@@ -106,8 +108,7 @@ IS_ADMIN="${WEX_IS_ADMIN_HELPER:-/usr/local/libexec/wineexplorer/wex-is-admin}"
 if [ "$WEXMODE" != normal ] && [ -x "$SYSRUN" ] && [ -x "$IS_ADMIN" ] && "$IS_ADMIN" "$USER" >/dev/null 2>&1; then
     echo "Safe Mode: the administrator's desktop runs elevated"
     started=$SECONDS
-    "$SYSRUN" safe-shell-wayland
-    rc=$?
+    rc=0; "$SYSRUN" safe-shell-wayland || rc=$?
     if [ "$rc" != 77 ] && [ $((SECONDS - started)) -ge 15 ]; then exit "$rc"; fi
     echo "Safe Mode: no elevated desktop (status $rc); starting it as usual"
 fi
