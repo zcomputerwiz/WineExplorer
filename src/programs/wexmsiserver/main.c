@@ -340,8 +340,9 @@ end:
 static DWORD WINAPI listener_thread( void *param )
 {
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
-    /* the system and the administrators; who may have a host is the gate's */
-    static const WCHAR sddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+    /* any authenticated caller may connect and ask: who gets a host is the gate's, and every refusal is logged (a
+     * refusal by this descriptor at the open would leave no trace) */
+    static const WCHAR sddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)";
     /* synchronous instances: the host reads and writes its connection synchronously; a stop cancels the wait for a
      * client (CancelSynchronousIo from the control handler) */
     DWORD flags = PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE;

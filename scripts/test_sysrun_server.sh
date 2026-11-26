@@ -4518,6 +4518,24 @@ msi_case()   # name msi action(approve|none) expected-result
     grep -q '^msi=PASS' "$ROOT/msi.log" || { cat "$ROOT/msi.log" >&2; fail "$name: no PASS"; }
 }
 el_up "$ADM"
+# session 0's services as its boot starts them on a machine: the event log (the audit) and msi's SYSTEM host service.
+# A program of session 0 (s0_wine is defined further down, with the s0 sections)
+msi_s0() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null); }
+# "cmd.exe /c ARGS" elevated through the broker, Approve once (el_cmd's body: el_cmd is defined further down too)
+msi_el_cmd()   # name user arguments-of-cmd.exe
+{
+    local name="$1" u="$2" args="$3" shown
+    el_clean
+    bprobe_f "$ROOT/ec.log" "$u" 64 shexec runas 'C:\windows\system32\cmd.exe' 0 "$(winpath $EL/out.ec)" - "raw:/c $args" & ECP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/ec.log" >&2; fail "$name: no consent window"; }
+    touch "${shown%.shown}.approve"
+    wait "$ECP" || { cat "$ROOT/ec.log.raw" >&2; fail "$name"; }
+    grep -q '^shexec=PASS' "$ROOT/ec.log" || { cat "$ROOT/ec.log" >&2; fail "$name: no PASS"; }
+}
+msi_s0 sc start EventLog >/dev/null || true
+msi_s0 sc start wexmsiserver >/dev/null || true
+msi_s0 sc query wexmsiserver | tr -d '\r' | grep -q RUNNING || { msi_s0 sc query wexmsiserver >&2 || true; fail "wexmsiserver does not run in session 0"; }
 msi_case c7_msi_per_machine_install_asks_once machine approve 0
 [ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "the per-machine MSI asked more than once"
 [ -f "$M/drive_c/Program Files (x86)/WexCallersmachine/hello.txt" ] || { find "$M/drive_c" -name hello.txt >&2; fail "the per-machine MSI did not install into Program Files"; }
@@ -4546,34 +4564,33 @@ ok c7_msi_impersonated_deferred_dll_runs_as_the_elevated_user
 ls "$M/drive_c/windows/Installer" 2>/dev/null | grep -q '^WexSys' && { ls -la "$M/drive_c/windows/Installer" >&2; fail "a SYSTEM host left its folder"; }
 ok c7_msi_system_host_removes_its_folder
 # the gate (WexMsiServer): only an elevated administrator's per-machine install gets a host
-out="$(wine_as "$ADM" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r')"
+out="$(wine_as "$ADM" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r' || true)"   # a refusal may exit 1
 grep -q '^gate=5$' <<<"$out" || { echo "$out" >&2; fail "a limited administrator got a SYSTEM host"; }
 ok c7_msi_gate_refuses_a_limited_administrator
-el_cmd c7_msi_gate_per_user "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 0 > $(winpath $EL/gate0.txt)"
+msi_el_cmd c7_msi_gate_per_user "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 0 > $(winpath $EL/gate0.txt)"
 grep -q '^gate=5' "$EL/gate0.txt" || { cat "$EL/gate0.txt" >&2; fail "an elevated per-user request got a SYSTEM host"; }
 ok c7_msi_gate_refuses_a_per_user_install
-el_cmd c7_msi_gate_per_machine "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 1 > $(winpath $EL/gate1.txt)"
+msi_el_cmd c7_msi_gate_per_machine "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 1 > $(winpath $EL/gate1.txt)"
 grep -q '^gate=0' "$EL/gate1.txt" && grep -q '^host=ready' "$EL/gate1.txt" || { cat "$EL/gate1.txt" >&2; fail "an elevated per-machine request got no SYSTEM host"; }
 ok c7_msi_gate_starts_a_host_for_an_elevated_per_machine_install
-out="$(wine_as "$STD" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r')"
-grep -q '^gate=0' <<<"$out" && { echo "$out" >&2; fail "a standard user got a SYSTEM host"; }
+out="$(wine_as "$STD" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r' || true)"
+grep -q '^gate=5$' <<<"$out" || { echo "$out" >&2; fail "a standard user got a SYSTEM host, or was not refused by the service"; }
 ok c7_msi_gate_refuses_a_standard_user
 # the audit, from session 0 (System log, source WexMsiServer): each action run as SYSTEM (3) and each refusal (2)
 [ -x "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp64.exe" \
     "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll
 chmod 755 "$ROOT/probes/evp64.exe"
-s0_wine "$ROOT/probes/evp64.exe" read System | tr -d '\r' > "$ROOT/msisys-events.txt"
+msi_s0 "$ROOT/probes/evp64.exe" read System | tr -d '\r' > "$ROOT/msisys-events.txt"
 for a in Act SysDll32 SysDll64; do
     grep -q "id=3 .*source=WexMsiServer .*first=$a\$" "$ROOT/msisys-events.txt" || { grep WexMsiServer "$ROOT/msisys-events.txt" >&2; fail "no audit event for the SYSTEM action $a"; }
 done
 grep -q 'id=3 .*source=WexMsiServer .*first=ImpDll32$' "$ROOT/msisys-events.txt" && fail "an impersonated action was audited as a SYSTEM action"
 ok c7_msi_each_system_action_is_audited_in_session0
-# the limited administrator and the elevated per-user request are refused by the service (the standard user's session
-# may already be stopped at the bridge, before the service): two logged refusals at least
-[ "$(grep -c 'id=2 .*source=WexMsiServer' "$ROOT/msisys-events.txt")" -ge 2 ] || { grep WexMsiServer "$ROOT/msisys-events.txt" >&2; fail "the gate's refusals were not logged"; }
+# the limited administrator, the elevated per-user request and the standard user: each refused by the service, logged
+[ "$(grep -c 'id=2 .*source=WexMsiServer' "$ROOT/msisys-events.txt")" -ge 3 ] || { grep WexMsiServer "$ROOT/msisys-events.txt" >&2; fail "the gate's refusals were not all logged"; }
 ok c7_msi_gate_refusals_are_logged
 # an elevated per-user install: its actions without impersonation run as the user (no host), as on Windows
-el_cmd c7_msi_elevated_per_user "$ADM" "msiexec /i $(winpath $MS/peruser.msi) /qn"
+msi_el_cmd c7_msi_elevated_per_user "$ADM" "msiexec /i $(winpath $MS/peruser.msi) /qn"
 f="$EL/out.SysDll32"
 [ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" != S-1-5-18 ] && [ "$(el_fact "$f" session)" != 0 ] ||
     { cat "$f" >&2; fail "a per-user install's action without impersonation did not run as the user"; }
