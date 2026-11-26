@@ -1334,9 +1334,17 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
         shell_restrictions_watch(g_desktop_view.hwnd, WM_WEX_POLICY);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        /* shown without activation: a restarted shell must not take the activation (the keyboard focus) from the
-         * programs that ran across the restart (B124) */
-        ShowWindow(g_desktop_view.hwnd, SW_SHOWNA);
+        /* A shell started again (B120) must not take the activation, and with it the keyboard focus, from a program
+         * that ran across the restart (B124); at the first logon nothing else is in front and the desktop is active,
+         * as on XP, so that the arrow keys, F2, Enter and Shift+F10 work on the icons at once. */
+        {
+            HWND fg = GetForegroundWindow();
+            DWORD pid = 0;
+
+            if (fg) GetWindowThreadProcessId(fg, &pid);
+            ShowWindow(g_desktop_view.hwnd, (fg && pid != GetCurrentProcessId() && IsWindowVisible(fg) &&
+                                             fg != GetDesktopWindow()) ? SW_SHOWNA : SW_SHOW);
+        }
     }
 
     desktop_view_refresh();

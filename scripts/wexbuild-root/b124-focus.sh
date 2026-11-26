@@ -7,6 +7,7 @@
 # Run in a private mount namespace (xwayland refuses WSLg's /tmp/.X11-unix): unshare -m bash -c 'mount -t tmpfs -o
 # mode=1777 tmpfs /tmp/.X11-unix && bash b124-focus.sh'. The wow64 build tree is W.
 # B124: keyboard focus of a program across a shell restart, headless wexcomp + explorer /shell + focus-probe.exe
+RC=0
 COMP=/root/wexcomp-dev/build/labwc
 W=/root/WE-chrome/build/wow64
 R=$(mktemp -d /tmp/wex-b124-XXXXXX); chmod 700 $R
@@ -38,6 +39,11 @@ PL=$WINEPREFIX/drive_c/focus-probe.log
 rm -f $PL $WINEPREFIX/drive_c/focus.stop
 (timeout 200 ./wine explorer.exe /shell >>$L 2>&1 &)
 sleep 15
+# case 1, a normal start (nothing else in front): the desktop view is the foreground window and has the keyboard focus
+QL=$WINEPREFIX/drive_c/focus-query.log; rm -f $QL
+timeout 30 ./wine Z:/root/focus-probe.exe query 'C:\focus-query.log' >>$L 2>&1
+echo "--- normal start: $(cat $QL)"
+grep -q "foreground=SHELLDLL_DefView focus=SHELLDLL_DefView" $QL && echo "PASS normal start: the desktop is active" || { echo "FAIL normal start: the desktop is not active"; RC=1; }
 (timeout 150 ./wine Z:/root/focus-probe.exe 'C:\focus-probe.log' >>$L 2>&1 &)
 sleep 8
 echo "--- before the kill"; tail -n 6 $PL
@@ -48,6 +54,8 @@ sleep 3
 sleep 15
 echo "--- after the restart"; tail -n 8 $PL
 grim /root/b124-2.png
+# case 2, a restart (a program in front): it keeps the foreground and the focus
+tail -n 4 $PL | grep -q "class=FocusProbe" && ! grep -q "WM_ACTIVATE inactive" $PL && echo "PASS restart: the program keeps the foreground and focus" || { echo "FAIL restart: the program lost the foreground or focus"; RC=1; }
 touch $WINEPREFIX/drive_c/focus.stop
 sleep 2
 echo "--- whole probe log"; grep -v tick $PL | uniq -f1 | head -40
@@ -55,3 +63,4 @@ grep -ai "error\|assert\|warn" $R/comp.log | head -5
 ./server/wineserver -k; pkill -9 -x wineserver; pkill -9 -x services.exe
 kill $CPID 2>/dev/null; wait $CPID 2>/dev/null
 cp $R/comp.log /root/b124-comp.log; rm -rf $R
+exit $RC

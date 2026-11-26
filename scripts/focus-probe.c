@@ -67,12 +67,34 @@ static LRESULT CALLBACK proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     return DefWindowProcW( hwnd, msg, wp, lp );
 }
 
+/* "query [LOG]": one line with the class of the foreground window and of the window with the keyboard focus in it, then ends */
+static void query( void )
+{
+    HWND fg = GetForegroundWindow();
+    GUITHREADINFO info = { sizeof(info) };
+    WCHAR fgcls[64] = L"", focuscls[64] = L"";
+    char a[64], b[64];
+
+    if (fg) GetClassNameW( fg, fgcls, 64 );
+    if (fg && GetGUIThreadInfo( GetWindowThreadProcessId( fg, NULL ), &info ) && info.hwndFocus)
+        GetClassNameW( info.hwndFocus, focuscls, 64 );
+    WideCharToMultiByte( CP_UTF8, 0, fgcls, -1, a, sizeof(a), NULL, NULL );
+    WideCharToMultiByte( CP_UTF8, 0, focuscls, -1, b, sizeof(b), NULL, NULL );
+    say( "query foreground=%s focus=%s", a, b );
+}
+
 int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
 {
     WNDCLASSW wc = {0};
     HWND hwnd;
     MSG msg;
 
+    if (cmdline && !wcsncmp( cmdline, L"query", 5 ))
+    {
+        if (cmdline[5] == L' ' && cmdline[6]) log_path = cmdline + 6;
+        query();
+        return 0;
+    }
     if (cmdline && cmdline[0]) log_path = cmdline;
     wc.lpfnWndProc = proc;
     wc.hInstance = inst;
