@@ -25,6 +25,8 @@ unsloth-tmp/*                           none
 scripts/test_sysrun_server.sh           normalsuite
 scripts/dwm-popup-probe.cpp             normalsuite
 scripts/dwm-menu-probe.c               normalsuite
+scripts/dwm-survivor-probe.c           normalsuite
+scripts/dwm-adopt-probe.c              normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
 scripts/eventlog-*                      normalsuite
 scripts/accounts-probe.c                normalsuite
@@ -119,6 +121,10 @@ installer/tests/test_popup_check.py     py:installer/tests/test_popup_check.py
 installer/tests/*                       py:scripts/test_safemode.py
 scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
 scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
+scripts/wine-explorer-session.sh        sh:scripts/test_session_supervisor.sh,sh:scripts/test_session_init.sh,chain
+scripts/wine-explorer-wayland-session.sh sh:scripts/test_session_supervisor.sh,chain
+scripts/wine-explorer-session-common.sh sh:scripts/test_session_supervisor.sh,sh:scripts/test_session_init.sh,chain
+scripts/test_session_supervisor.sh      sh:scripts/test_session_supervisor.sh
 scripts/vmtest.py                       py:scripts/test_safemode.py
 
 # what the image installs and boots

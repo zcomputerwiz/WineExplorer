@@ -403,6 +403,8 @@ static void save_default_user( const WCHAR *name )
     if (!name[0] || RegCreateKeyExW( HKEY_CURRENT_USER, winlogon_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL ))
         return;
     RegSetValueExW( key, L"DefaultUserName", 0, REG_SZ, (const BYTE *)name, (lstrlenW( name ) + 1) * sizeof(WCHAR) );
+    /* saved now: the greeter ends right after (the session starts) and its wineserver may be stopped before its own save */
+    RegFlushKey( key );
     RegCloseKey( key );
 }
 

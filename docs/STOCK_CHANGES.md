@@ -5146,3 +5146,59 @@ changes on screen; with composition on, menus and tooltips get the compositor's 
 The tooltip class (`dlls/comctl32/tooltips.c`) also gets `CS_DROPSHADOW` (one flag), so tooltips follow the same
 setting. The two-column Start menu window class in wexshell (`startmenu_view.c`) has it too. Neither is verified on
 screen yet; the chain's `popups` stage will show it.
+
+## A restarted explorer takes over its desktop (B120, 2026-11-25)
+
+Wine `claude/explorer-restart-desktop` (on development `f6ca22d9`). When explorer, the manager of a desktop, dies
+while the desktop lives on (other programs still use it), the desktop window stays with no thread. A restarted explorer
+then failed in two ways: its desktop-class window became a child of the ownerless one and was refused at `WM_NCCREATE`
+(explorer ended at once), and winex11.drv adopted the dead process's X window id (`BadWindow` in `X_CreateWindow`).
+On Windows the desktop and the other programs survive and Winlogon starts the shell again (`AutoRestartShell`); this is
+the Wine half of that (the session supervisor, `wex_run_shell`, is the WineExplorer half).
+
+- `server/window.c`, `server/user.c`, `server/user.h`, `server/winstation.c`, `server/token.c`, `server/security.h`:
+  - The desktop remembers who manages it (the user SID, session and integrity level of the process that created its
+    top window) and whether that manager died (`destroy_thread_windows` sets `manager_died` when the thread of the top
+    window ends; a service desktop's window detaches the same way, which is why the window station is checked below).
+  - A desktop-class `create_window` on such a desktop re-attaches the existing top window (`reattach_desktop_window`):
+    thread, desktop and class are the new process's, the shared class locator and window procedure are rewritten, the
+    user handle table entry names the new owner thread and process (`set_user_handle_owner`; the clients check it), the
+    queue paint counts that `detach_window_thread` took off the old thread are put back, and the handle stays. The
+    programs that run on the desktop keep the handle they cached: their parent for top-level windows, what
+    `FindWindow` and `EnumWindows` start from. Children, z-order and unlinked windows are untouched. It is refused
+    (`STATUS_ACCESS_DENIED`) when the class has a different extra size.
+  - Who may take over (`may_take_over_desktop`, `token_may_take_desktop`): the manager died, the desktop is on the
+    interactive window station (`WSF_VISIBLE`: the Wayland session's desktop has no virtual or root flag, and a new
+    desktop inherits those flags from its creator, so they do not tell), and the caller (its process token, and its
+    thread's impersonation token when it has one) has the same user SID and session, at least the recorded integrity
+    level, and a token that is neither an AppContainer's nor restricted; the secure desktop only for the system role.
+    Anyone else gets `STATUS_ACCESS_DENIED` during the gap. Tested in `c4_dwm_restart`: a Low integrity process, and
+    a desktop of another window station, and an AppContainer child (the Chromium sandbox's token; it may be refused by the desktop check before the rule, so it shows the gap is closed, not which check did it).
+  - Nothing changes while the top window has an owner.
+- `dlls/winex11.drv/window.c`: `X11DRV_SetDesktopWindow` in the process that made its own X desktop window (the manager)
+  always uses and stores that window, not the one stored on the (older) server window; other processes adopt the stored
+  one as before.
+- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\wex-session-ending` (one name for the prefix:
+  its sessions share a wineserver, and a caller such as an elevated broker or a logoff script has no login session
+  environment) before they start (removed when the end is refused). The session's supervisor tells a Log Off or shutdown from a crash of the shell by it: the exit status of `wine explorer.exe` is 0
+  after a `kill -9` as well. (The first file was `C:\windows\temp\...`: the Windows directory of an account's prefix
+  can be shared and read-only, and the file never appeared.)
+
+On a virtual desktop (the X11 session) the other programs' X windows are children of explorer's X desktop window and
+go with it: such a program keeps a working desktop handle but cannot create a new X window (the X error ends it).
+The Wayland session has no virtual desktop. Suite section `c4_dwm_restart` runs the shell under the session's own
+supervisor, kills its explorer, and checks, with a 64-bit and a 32-bit program that ran before the kill, that
+`IsWindow`, `FindWindow("Shell_TrayWnd")`, `TaskbarCreated` and a notification icon added again work; that a Low
+integrity process is refused during the gap and a service desktop is not adopted; the menu probe with and without
+composition; and finally a Log Off as msgina's fallback does it (`wineboot --end-session --force`, and the shell ends
+at once), which must end the supervisor with no new shell. Stock Wine has the same code and so, by reading it, the same
+failures; that was not run.
+
+## RegFlushKey saves the key's branch (2026-11-25)
+
+Wine `claude/regflush` (one commit on development): `server/registry.c`, `DECL_HANDLER(flush_key)`. For a key that is
+not in a managed (e1s) hive, the server saves the branch that holds it (`find_branch_info`, `save_branch`, the path the
+periodic and exit saves use) instead of doing nothing. A server that is killed does not run its exit save, so the last
+changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
+flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
+set and flushed is in the prefix's `user.reg`; skipped off Wine).

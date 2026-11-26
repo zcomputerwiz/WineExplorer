@@ -2549,4 +2549,8 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
         DWORD err = WexTrayStart(native_tray_event, tray_window);
         if (err) WARN("Native tray unavailable: %lu\n", err);
     }
+
+    /* As the XP taskbar does once it exists: programs with a notification icon add it again (a shell that started
+     * after them, or again after it ended and was restarted) */
+    if (enable_taskbar) PostMessageW( HWND_BROADCAST, RegisterWindowMessageW( L"TaskbarCreated" ), 0, 0 );
 }

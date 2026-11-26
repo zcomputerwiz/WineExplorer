@@ -111,4 +111,6 @@ if [ "$WEXMODE" != normal ] && [ -x "$SYSRUN" ] && [ -x "$IS_ADMIN" ] && "$IS_AD
     if [ "$rc" != 77 ] && [ $((SECONDS - started)) -ge 15 ]; then exit "$rc"; fi
     echo "Safe Mode: no elevated desktop (status $rc); starting it as usual"
 fi
-"$WINE" explorer.exe /shell
+# Winlogon starts the shell again when it ends alone (AutoRestartShell, wex_run_shell); the session ends with the shell otherwise
+wex_run_shell "$WINE" explorer.exe /shell
+exit $?
