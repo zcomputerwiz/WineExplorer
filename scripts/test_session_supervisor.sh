@@ -149,9 +149,9 @@ unset WEX_SHELL_RESTARTS
 reset
 echo 'guard_keeps_the_session=PASS'
 
-# the marker is named per login session
-( XDG_SESSION_ID=7; wex_session_ending_marker ) | grep -q 'wex-session-ending-7$' || fail 'the marker has no session id'
-echo 'marker_per_session=PASS'
+# one marker name for the prefix, whatever the caller's environment (an elevated broker or a logoff script has no XDG_SESSION_ID)
+( XDG_SESSION_ID=7; wex_session_ending_marker ) | grep -q 'wex-session-ending$' || fail 'the marker name depends on the login session'
+echo 'marker_name_is_fixed=PASS'
 
 # another shell: only of this prefix, by its WINEPREFIX; unset WEX_SHELL_PGREP for this one
 unset WEX_SHELL_PGREP

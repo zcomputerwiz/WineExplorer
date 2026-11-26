@@ -186,8 +186,8 @@ wex_auto_restart_shell()
 # shutdown; removed when the end is refused). The shell ending without it is a crash.
 wex_session_ending_marker()
 {
-    # one file per login session when the display manager gives an id (wineboot names it the same way)
-    echo "$WINEPREFIX/drive_c/wex-session-ending${XDG_SESSION_ID:+-$XDG_SESSION_ID}"
+    # one name for the prefix (wineboot writes it unconditionally: its caller may lack the login session environment)
+    echo "$WINEPREFIX/drive_c/wex-session-ending"
 }
 
 # Whether the prefix's wineserver is still running (wineserver -k0 sends no signal and says whether there is one).

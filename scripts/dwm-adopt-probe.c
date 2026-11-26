@@ -36,6 +36,7 @@
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-adopt-probe.exe dwm-adopt-probe.c -luser32 -ladvapi32 */
 
 #include <windows.h>
+#include <sddl.h>
 #include <stdio.h>
 #include <wchar.h>
 
@@ -168,10 +169,76 @@ static void service( void )
     else log_to( path, "service DENIED error=%lu", GetLastError() );
 }
 
+/* The AppContainer child: as lowchild, in C:\adopt-ac.log */
+static void acchild( void )
+{
+    const WCHAR *path = L"C:\\adopt-ac.log";
+    HWND hwnd;
+    DWORD i;
+
+    log_to( path, "acchild ready" );
+    for (i = 0; i < 1200 && GetFileAttributesW( L"C:\\adopt.go" ) == INVALID_FILE_ATTRIBUTES; i++) Sleep( 100 );
+    SetLastError( 0 );
+    hwnd = create_desktop_class_window();
+    if (hwnd) log_to( path, "ac ADOPTED hwnd=%p", hwnd );
+    else log_to( path, "ac DENIED error=%lu", GetLastError() );
+}
+
+/* A copy of itself with an AppContainer token (the Chromium sandbox's: CreateAppContainerToken from kernelbase, a
+ * package SID, no capabilities, started with PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES) */
+static void appcontainer( void )
+{
+    typedef BOOL (WINAPI *create_token_func)( HANDLE, SECURITY_CAPABILITIES *, HANDLE * );
+    const WCHAR *path = L"C:\\adopt-ac.log";
+    create_token_func create_token;
+    SECURITY_CAPABILITIES caps = {0};
+    STARTUPINFOEXW si = {{ sizeof(si) }};
+    PROCESS_INFORMATION pi;
+    HANDLE base, token = NULL;
+    PSID sid = NULL;
+    SIZE_T size = 0;
+    WCHAR exe[MAX_PATH], cmdline[MAX_PATH + 32];
+
+    create_token = (create_token_func)GetProcAddress( GetModuleHandleW( L"kernelbase.dll" ), "CreateAppContainerToken" );
+    if (!create_token || !OpenProcessToken( GetCurrentProcess(), TOKEN_ALL_ACCESS, &base ) ||
+        !ConvertStringSidToSidW( L"S-1-15-2-3094097068-3553367332-4200492865-707594790", &sid ))
+    {
+        log_to( path, "ac FAIL setup (token function %p) error=%lu", (void *)create_token, GetLastError() );
+        return;
+    }
+    caps.AppContainerSid = sid;
+    if (!create_token( base, &caps, &token ))
+    {
+        log_to( path, "ac FAIL CreateAppContainerToken error=%lu", GetLastError() );
+        return;
+    }
+    InitializeProcThreadAttributeList( NULL, 1, 0, &size );
+    si.lpAttributeList = HeapAlloc( GetProcessHeap(), 0, size );
+    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &size ) ||
+        !UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, &caps, sizeof(caps),
+                                    NULL, NULL ))
+    {
+        log_to( path, "ac FAIL attribute list error=%lu", GetLastError() );
+        return;
+    }
+    GetModuleFileNameW( NULL, exe, MAX_PATH );
+    swprintf( cmdline, MAX_PATH + 32, L"\"%ls\" acchild", exe );
+    if (!CreateProcessAsUserW( token, exe, cmdline, NULL, NULL, FALSE, EXTENDED_STARTUPINFO_PRESENT, NULL, NULL,
+                               &si.StartupInfo, &pi ))
+    {
+        log_to( path, "ac FAIL CreateProcessAsUser error=%lu", GetLastError() );
+        return;
+    }
+    WaitForSingleObject( pi.hProcess, 150000 );
+    log_to( path, "ac parent done" );
+}
+
 int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
 {
     if (cmdline && wcsstr( cmdline, L"lowchild" )) lowchild();
+    else if (cmdline && wcsstr( cmdline, L"acchild" )) acchild();
     else if (cmdline && wcsstr( cmdline, L"lowil" )) lowil();
+    else if (cmdline && wcsstr( cmdline, L"appcontainer" )) appcontainer();
     else if (cmdline && wcsstr( cmdline, L"service" )) service();
     return 0;
 }

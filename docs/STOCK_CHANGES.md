@@ -4869,14 +4869,14 @@ the Wine half of that (the session supervisor, `wex_run_shell`, is the WineExplo
     thread's impersonation token when it has one) has the same user SID and session, at least the recorded integrity
     level, and a token that is neither an AppContainer's nor restricted; the secure desktop only for the system role.
     Anyone else gets `STATUS_ACCESS_DENIED` during the gap. Tested in `c4_dwm_restart`: a Low integrity process, and
-    a desktop of another window station. Not tested: an AppContainer caller.
+    a desktop of another window station, and an AppContainer child (the Chromium sandbox's token; it may be refused by the desktop check before the rule, so it shows the gap is closed, not which check did it).
   - Nothing changes while the top window has an owner.
 - `dlls/winex11.drv/window.c`: `X11DRV_SetDesktopWindow` in the process that made its own X desktop window (the manager)
   always uses and stores that window, not the one stored on the (older) server window; other processes adopt the stored
   one as before.
-- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\wex-session-ending` (with `-ID` of the login
-  session, `XDG_SESSION_ID`, when there is one) before they start (removed when the end is refused). The session's
-  supervisor tells a Log Off or shutdown from a crash of the shell by it: the exit status of `wine explorer.exe` is 0
+- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\wex-session-ending` (one name for the prefix:
+  its sessions share a wineserver, and a caller such as an elevated broker or a logoff script has no login session
+  environment) before they start (removed when the end is refused). The session's supervisor tells a Log Off or shutdown from a crash of the shell by it: the exit status of `wine explorer.exe` is 0
   after a `kill -9` as well. (The first file was `C:\windows\temp\...`: the Windows directory of an account's prefix
   can be shared and read-only, and the file never appeared.)
 

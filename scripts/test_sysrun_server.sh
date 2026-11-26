@@ -3607,7 +3607,7 @@ if [ "$1" = restart ]; then
     # (six seconds later, a gap wide enough for the refusals below) and ends with a Log Off
     cp "$SRC/scripts/wine-explorer-session-common.sh" "$MENUD/"
     mkdir -p "$MENUD/lib" && cp "$SRC/scripts/lib/wex-common.sh" "$MENUD/lib/" && chmod -R a+rX "$MENUD/lib" "$MENUD/wine-explorer-session-common.sh"
-    run_as "$ADM" env DISPLAY=":$MENUDN" WINE="$BUILD/wine" WEX_WINESERVER="$BUILD/server/wineserver" WEX_LIB_DIR="$MENUD/lib" \
+    run_as "$ADM" env DISPLAY=":$MENUDN" WINE="$BUILD/wine" WEX_WINESERVER="$BUILD/server/wineserver" WEX_LIB_DIR="$MENUD/lib" XDG_SESSION_ID=7 \
         WEX_SKEL_PFX=/nonexistent WEX_SHELL_RESTART_DELAY=6 timeout 400 bash -c \
         '. "$1"; wex_run_shell "$WINE" explorer.exe /desktop=Default,1280x800 /shell; echo "supervisor returned $?"' _ \
         "$MENUD/wine-explorer-session-common.sh" >"$MENUD/shell.log" 2>&1 &
@@ -3639,13 +3639,17 @@ if [ "$1" = restart ]; then
         >"$MENUD/adopt-service.out" 2>&1 || true
     run_as "$ADM" env WINEDEBUG=-all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" "$(winpath "$MENUD/dwm-adopt-probe.exe")" lowil \
         >"$MENUD/adopt-lowil.out" 2>&1 &
+    run_as "$ADM" env WINEDEBUG=-all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" "$(winpath "$MENUD/dwm-adopt-probe.exe")" appcontainer \
+        >"$MENUD/adopt-ac.out" 2>&1 &
     for _ in $(seq 60); do grep -qs 'lowchild ready' "$SVD/adopt-lowil.log" && break; sleep 1; done
+    for _ in $(seq 30); do grep -qs 'acchild ready\|ac FAIL' "$SVD/adopt-ac.log" && break; sleep 1; done
     grep -qs 'lowchild ready' "$SVD/adopt-lowil.log" || { cat "$SVD/adopt-lowil.log" >&2; fail "$2: the low integrity child did not start"; }
     pkill -9 -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' 2>/dev/null || true
     for _ in $(seq 100); do pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null || break; sleep 0.1; done
     sleep 1   # the server has seen the manager die
     touch "$SVD/adopt.go"
     for _ in $(seq 40); do grep -qs '^lowil \(DENIED\|ADOPTED\)' "$SVD/adopt-lowil.log" && break; sleep 1; done
+    for _ in $(seq 20); do grep -qs '^ac \(DENIED\|ADOPTED\|FAIL\)' "$SVD/adopt-ac.log" && break; sleep 1; done
     # the supervisor starts the shell again: a new explorer of the desktop within a minute, and it stays
     for _ in $(seq 60); do pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null && break; sleep 1; done
     pgrep -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' >/dev/null ||
@@ -3672,8 +3676,12 @@ if [ "$1" = restart ]; then
     ad_fail=
     grep -qs '^lowchild il=1000' "$SVD/adopt-lowil.log" || ad_fail="$ad_fail the child was not Low integrity;"
     grep -qs '^lowil DENIED error=5' "$SVD/adopt-lowil.log" || ad_fail="$ad_fail a Low integrity process was not refused with ACCESS_DENIED in the gap;"
+    # the AppContainer child (the Chromium sandbox's token): refused too. A start that fails ("ac FAIL ...") is a note, not a
+    # failure of the rule: the helper has not run on every build
+    if grep -qs '^ac FAIL' "$SVD/adopt-ac.log"; then echo "NOTE: the AppContainer case did not start: $(tr -d '\r' < "$SVD/adopt-ac.log" | grep -m1 '^ac FAIL')"
+    else grep -qs '^ac DENIED error=5' "$SVD/adopt-ac.log" || ad_fail="$ad_fail an AppContainer process was not refused with ACCESS_DENIED in the gap;"; fi
     grep -qs '^service DENIED error=5' "$SVD/adopt-service.log" || ad_fail="$ad_fail a service desktop was taken over (or the probe failed);"
-    [ -z "$ad_fail" ] || { tr -d '\r' < "$SVD/adopt-lowil.log" >&2; tr -d '\r' < "$SVD/adopt-service.log" >&2; fail "$2:$ad_fail"; }
+    [ -z "$ad_fail" ] || { tr -d '\r' < "$SVD/adopt-ac.log" >&2; tr -d '\r' < "$SVD/adopt-lowil.log" >&2; tr -d '\r' < "$SVD/adopt-service.log" >&2; fail "$2:$ad_fail"; }
     echo "restart: a Low integrity process and a service desktop were refused (ACCESS_DENIED); the new explorer took the desktop"
 fi
 if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
