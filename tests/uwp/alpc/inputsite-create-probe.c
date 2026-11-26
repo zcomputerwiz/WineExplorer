@@ -2,10 +2,12 @@
  * Copyright 2026 WineExplorer contributors
  *
  * Black-box probe: what the system's input-site factories hand out and what they ask of their caller.
- * The call shapes come from traces of an application at the interface boundary (wintrace, _O):
+ * The shapes of the two factory calls come from traces of an application at slot 6 of factories that the tracer itself
+ * obtained (wintrace, winrt! targets):
  *   InputSite factory, interface {73f80911-...}, slot 6: (this, an object of the caller, out: the site)
  *   ActivationConfigurationInputObject factory, interface {4c8421ca-...}, slot 6: (this, the site, out: the object)
- *   on that object: slots 7 and 9, each with a second argument of 0
+ * The calls on the configuration object (slots 7 and 9 with a second argument of 0) were first seen in a trace of a kind that
+ * is no longer allowed (docs/uwp/DESIGN_INPUTSITE.md, "Rules followed"); here they are calls on an object this program made.
  * This program makes the same calls with an object of its own in place of the caller's. That object answers
  * QueryInterface as the first argument says and logs every interface id asked for and every method called on it:
  *   none   only IUnknown, IInspectable, IAgileObject

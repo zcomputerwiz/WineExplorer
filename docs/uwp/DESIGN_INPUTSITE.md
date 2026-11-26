@@ -6,7 +6,7 @@ Copyright 2026 WineExplorer contributors
 
 Read with [HANDOFF_NOTEPAD.md](HANDOFF_NOTEPAD.md) (wall 1 and target 2 of the ranked list). This note records what was
 measured on Windows 11 (build 26300) and Windows 10 (build 19045, the lab machine), what follows for Wine, and what is
-still unknown. Nothing is implemented in Wine yet.
+still unknown.
 
 ## Summary
 
@@ -41,10 +41,28 @@ module has to do the same is the open question (unknown 4 below).
 ## Rules followed
 
 Black box only: exported calls and calls at COM interface boundaries, with their arguments and results. No disassembly, no
-symbol names, no code bytes (the tracer now refuses to dump memory of a module). The traces are outside the repository
-(`D:\DeepThought\inputsite-probe`). New in `wintrace.c`: `_O` and `_I` trace the interfaces of objects that a traced call
-hands out or receives, counted only for calls that come from another module. That goes one step past "objects the tracer
-creates"; it stays at interface boundaries, and it should get the same review as the earlier tracer rules.
+symbol names, no code bytes (the tracer refuses to dump memory of a module). The traces are outside the repository
+(`D:\DeepThought\inputsite-probe`).
+
+**Ruling of the owner (2026-11-26).** The first version of this work added two tracer options, `_O` and `_I`, that traced
+the methods of objects which a Windows module hands out or receives. That is not allowed: traces of Windows programs are
+limited to exported API calls and load-order and entry traces, as before. The options were removed from `wintrace.c`. No
+new result may be taken from those traces. The facts below that rest on them alone are marked
+**[from a trace that is no longer allowed]** and listed here; nothing in the Wine module depends on them:
+
+1. What Notepad's caller does with a site on Windows 11 after creating it (`QueryInterface` for `IUnknown` and
+   `{cfb32fa7}`), and that it calls slots 7 and 9 of the configuration object with 0.
+2. That the configuration object's interface has at most four methods.
+3. That no other method of either object is called from outside in 45 seconds without input.
+4. That the handle which Notepad's host hands out is the composition input sink of its input window (the values
+   matched those of `NtCreateCompositionInputSink`), and that nothing calls the object the host hands out on Windows 11.
+
+What replaces them: the ids asked of a host and the slot called on it (a host of our own logs them), the default
+interfaces (`GetIids` and the pointer returned, on objects we created), the four methods of the configuration object
+(slots 6 to 9 called by our probe on an object we created), and what the application's own caller does under Wine (the
+log of our module, run b41). The identity of the handle has no replacement on Windows: Windows accepts any handle from
+our host. Under Wine it can be checked from our side by comparing the handles our module receives with those that Wine's
+`NtCreateCompositionInputSink` returned to the same thread; that comparison has not been made yet.
 
 ## Measured on Windows 11
 
@@ -65,29 +83,37 @@ from metadata. What `{24701c1a}` is for is not known (Notepad does not ask for i
 
 ### What Notepad's input thread does (wintrace, three runs, the same each time)
 
-Three times, once per input window (the three `MITMessageOnlyWindowClass` windows, each with its composition input sink):
+Three times, once per input window (the three `MITMessageOnlyWindowClass` windows, each with its composition input sink).
+Steps 1 and 3 are exported calls and calls of slot 6 of a factory that the tracer itself obtained (the kind of target the
+tracer had before); steps 2 and 4 are not.
 
 1. `RoGetActivationFactory("...InputSite", {73f80911})`, then slot 6 of that interface: `(this, host, out site)`. `host` is an
    object of the caller. Result `S_OK` and a site.
-2. On the site: `QueryInterface(IUnknown)`, and on that `QueryInterface({cfb32fa7-5399-5f3d-82ba-9641f106ffcd})`, which
-   gives back the pointer the factory returned. So `{cfb32fa7}` is the site's default interface.
+2. **[from a trace that is no longer allowed]** On the site: `QueryInterface(IUnknown)`, and on that
+   `QueryInterface({cfb32fa7-5399-5f3d-82ba-9641f106ffcd})`. (That `{cfb32fa7}` is the site's default interface is known
+   without the trace: it is first in `GetIids` of a site we created, and it is the pointer the factory returned to us.)
 3. `RoGetActivationFactory("...ActivationConfigurationInputObject", {4c8421ca})`, then slot 6: `(this, site, out object)`.
-   `S_OK`. (Inside this call `InputHost.dll` itself asks for `Windows.System.DispatcherQueue`.)
-4. On that object: slot 7 and slot 9, each with a second argument of 0, each `S_OK`. The object's interface has at most
-   four methods (slots 6 to 9). Two setters called with 0 is the likely reading; the names are not known.
+   `S_OK`. (During this call `RoGetActivationFactory` is called for `Windows.System.DispatcherQueue` from `InputHost.dll`.)
+4. **[from a trace that is no longer allowed]** On that object: slot 7 and slot 9, each with a second argument of 0, each `S_OK`; the
+   object's interface has at most four methods. (Without the trace: our probe calls slots 6 to 9 on an object it created,
+   see the design section; under Wine the application's own caller makes the same two calls on our object, run b41.)
 
-In 45 seconds without input, no other method of the site or of the configuration object is called from outside
-`InputHost.dll`.
+**[from a trace that is no longer allowed]** In 45 seconds without input, no other method of the site or of the configuration object
+is called from outside `InputHost.dll`.
 
-### What the site asks of its caller (wintrace `_I`, and `inputsite-create-probe.c`)
+### What the site asks of its caller (`inputsite-create-probe.c`, a host of our own that logs)
 
-During step 1, `InputHost.dll` calls the host object:
+During the creation call the system calls the host object (the probe's host in mode `all` logs every interface id asked
+for and every slot called):
 
-* `QueryInterface({01dc794b-4ff5-4491-9942-b9e7b8893be4})`, then slot 9 of it with one out argument: an object comes back
-  (another interface of the host object). No call on that object was seen while no input arrived.
-* `QueryInterface({92179cc0-ae1f-48bc-a354-8f7a8800f2fb})`, then slot 9 of it with one out argument: a handle comes back.
-  It is the composition input sink that the same thread made earlier with `NtCreateCompositionInputSink`: the three
-  values match the three sinks in order (trace with both calls).
+* `QueryInterface({01dc794b-4ff5-4491-9942-b9e7b8893be4})`, then slot 9 of it with one out argument.
+  **[from a trace that is no longer allowed]** Notepad's host hands out an object there (another interface of the host object), and no
+  call on that object was seen while no input arrived. (Our host hands out itself; the creation succeeds.)
+* `QueryInterface({92179cc0-ae1f-48bc-a354-8f7a8800f2fb})`, then slot 9 of it with one out argument, a handle.
+  **[from a trace that is no longer allowed]** Notepad's host hands out the composition input sink that the same thread made earlier
+  with `NtCreateCompositionInputSink` (the three values matched the three sinks in order). Our own measurements only show
+  that a handle is wanted and that Windows does not check it (below); this note and the Wine module call it the sink on
+  the strength of the trace.
 
 With a host of our own that refuses (`inputsite-create-probe.exe none` and `all`) the system ends the process with a fail
 fast (`0xc0000409`) as soon as a question is refused or its slot 9 call fails. With a host that answers them
@@ -139,8 +165,9 @@ What that caller does with the site afterwards is still open. Two ways to find o
    returns, one step at a time, without a rebuild. It was tried on the host with the calls of the Windows 11 caller
    (`inputsite-create-probe.exe all sta PATH\inputhost-logstub.dll`). 64-bit only. It needs the CoreMessaging rounds to
    run first, or the earlier lab state in which the input thread reached this request.
-2. **A small Windows App SDK test application on the Windows 10 lab machine**, traced with `wintrace` and `_O`/`_I`
-   (the calls of the application's own caller on the real site). Needs the orchestrator's agreement to install it there.
+2. Not available: tracing the calls of an application's own caller on the real site on Windows (the removed `_O`/`_I`
+   options) is not allowed. On Windows only what a site asks of a host of our own, and what our own calls on a site
+   return, can be measured.
 
 ## Design for Wine
 
@@ -154,26 +181,27 @@ of our own in a module-local IDL with the measured interface ids; both architect
 **Minimum interface set** (the Windows 10 ids):
 
 * `InputSite` factory: `IActivationFactory` (`ActivateInstance`: `E_NOTIMPL`), `IAgileObject`, `IMarshal`, and
-  `{8ca0442d}` with one method `(host, out site)`; `GetIids` as measured; `{73f80911}` refused.
+  `{8ca0442d}` with one method `(host, out site)` (slot 6, called by our probe on Windows 10); `GetIids` as measured; `{73f80911}` refused.
 * The site: runtime class name, `GetIids` as on Windows 10 (`{f77d91d0}` default, `{e6414e4b}`, `{2cc67fbf}`,
   `{46cae093}`, `IClosable`), `IAgileObject`. The methods of the four private interfaces are unknown; they start as
   slots that log and fail, and get filled in as the lab run shows which are called.
 * `ActivationConfigurationInputObject` factory: `IActivationFactory`, `IAgileObject`, `IMarshal`, `{4c8421ca}` with one
   method `(site, out object)`.
-* The configuration object: runtime class name, default interface `{773ebb88}` with four methods (slots 6 to 9), of
-  which 7 and 9 are called with 0 at start-up and must succeed; the other listed interfaces as for the site.
+* The configuration object: runtime class name, default interface `{773ebb88}` with the four methods our probe called
+  (slots 6 to 9), of which the application's own caller calls 7 and 9 with 0 at start-up under Wine (b41); the other
+  listed interfaces as for the site.
 
 **What the objects must do.**
 
-* The site keeps a reference to the host and reads the input sink handle from it (`{92179cc0}` slot 9); creation fails
-  when the host refuses. The sink is Wine's own object (`NtCreateCompositionInputSink` in win32u, with the windows it
+* The site reads the input sink handle from the host (`{92179cc0}` slot 9) and keeps no reference to the host (measured
+  with our host: its count is unchanged after creation); creation fails when the host refuses. The sink is Wine's own object (`NtCreateCompositionInputSink` in win32u, with the windows it
   names), so the site can find the input window and the application window from the handle. That lookup needs a win32u
   entry point that does not exist yet (sink to windows); it would be a second stock change, needed only once the site
   delivers input.
 * How input for those windows reaches the application is unknown (unknown 3 below). On Windows 11 the host also hands out
-  an object, which nothing calls while no input arrives; on Windows 10 there is no such object. This is the part to
-  measure next: on Windows with input sent to the window while tracing with `_O`/`_I`, and under Wine by seeing what the
-  application asks of the site.
+  an object (**[from a trace that is no longer allowed]**: nothing calls it while no input arrives); on Windows 10 there is no such
+  object. This is the part to measure next: on Windows with a host, a sink and a window of our own and input sent to
+  that window (our host logs what it is asked), and under Wine by seeing what the application asks of the site.
 * The configuration object holds two 32-bit settings (measured on both systems with `inputsite-create-probe.exe sink`):
   slots 6 and 8 read them through an out pointer, slots 7 and 9 write them; both start as 0 and read back what was
   written, each on its own. They are stored and otherwise ignored until their meaning is known.
@@ -191,8 +219,9 @@ takes either set there (the Windows 10 set is what Wine implements).
 
 ## Still unknown
 
-1. What the application's own caller does with the site after creation: which interfaces it asks for and which methods it
-   calls (the lab run, or a test application on Windows 10).
+1. What the application's own caller does with the site after creation, beyond what run b41 shows: which interfaces it
+   asks for and which methods it calls once the page loads and input arrives (the lab run under Wine; not traceable on
+   Windows).
 2. The methods of the site's interfaces (`{f77d91d0}`, `{e6414e4b}`, `{2cc67fbf}`, `{46cae093}`), of `{24701c1a}` on the
    Windows 11 factory, and the names and types of the configuration object's four methods and of its other interfaces.
 3. How input reaches the caller. On Windows 10 the host is asked for nothing but the sink, so input most likely arrives
@@ -210,16 +239,17 @@ takes either set there (the Windows 10 set is what Wine implements).
   the stand-in. Outputs of `sink` on both systems are in `compare/expected/`.
 * `tests/uwp/alpc/compare/normalize.py`: the last group of a GUID is no longer taken for an address.
 * `tests/uwp/alpc/inputhost-logstub.c`, `.def`: the logging stand-in for the lab prefix (header: how to install and steer).
-* `tests/uwp/alpc/wintrace.c`: `_O`, `_I`, `_G`, `_T`, `WINTRACE_FOLLOW`, `WINTRACE_SKIP_MISSING`; `winrt!` targets check
-  that a slot leads to code and count only objects of that vtable.
+* `tests/uwp/alpc/wintrace.c`: `_G`, `_T`, `WINTRACE_SKIP_MISSING`; `winrt!` targets check that a slot leads to code and
+  count only objects of that vtable; memory of a module is never dumped. (`_O`, `_I` and `WINTRACE_FOLLOW` were removed,
+  see "Rules followed".)
 
-Trace command used (host, Notepad closed before and after):
+The traces that used the removed options (`wt-is2.txt` to `wt-is4.txt`, outside the repository) are kept as they are and
+not extended. The allowed part of that measurement is this command (host, Notepad closed before and after):
 
 ```
 set WINTRACE_WATCH=Notepad.exe
-set WINTRACE_FOLLOW=InputHost.dll,Microsoft.Internal.FrameworkUdk.System.dll
 wintrace.exe Microsoft.WindowsNotepad_8wekyb3d8bbwe!App 45 OUT.txt ^
-  winrt!Windows.UI.Internal.Input.InputSite@{73f80911-7a51-5b0f-906b-f6402ea6c3cb}[6]:isf6_O_I_Q_K_T:10:R ^
-  winrt!Windows.UI.Internal.Input.ActivationConfigurationInputObject@{4c8421ca-3863-5236-b09a-757cf68c5fa5}[6]:acf6_O_Q_K_T:10:R ^
+  winrt!Windows.UI.Internal.Input.InputSite@{73f80911-7a51-5b0f-906b-f6402ea6c3cb}[6]:isf6_Q:10:R ^
+  winrt!Windows.UI.Internal.Input.ActivationConfigurationInputObject@{4c8421ca-3863-5236-b09a-757cf68c5fa5}[6]:acf6_Q:10:R ^
   win32u.dll!NtCreateCompositionInputSink:sink_Q:10:R
 ```
