@@ -633,7 +633,11 @@ static void svc_sd_set(const char *name)
  * test_failure_actions), "Take No Action" does not.
  *   svc-fa-grant NAME   (system role) Authenticated Users get read, query and SERVICE_CHANGE_CONFIG, not SERVICE_START
  *   svc-fa-run NAME     (a standard user) the grant above: no action saves, a restart gives ERROR_ACCESS_DENIED, nothing changed
- *   svc-fa-run NAME full  (system role) CHANGE_CONFIG | START: a restart action saves */
+ *   svc-fa-run NAME full  (system role) CHANGE_CONFIG | START: a restart action saves
+ * The DACL gives SY 0x201fd, which has no SERVICE_CHANGE_CONFIG: the system role's "full" run and its WRITE_DAC open succeed
+ * on purpose through the Administrators entry (0xf01ff) that the system role's token holds. The "denied" expectation of
+ * svc-fa-run relies on the caller's token being the filtered, non-elevated one (a standard user, or the administrator's
+ * limited token, where BA is deny-only): an elevated administrator would legitimately save the restart. */
 static void svc_fa_grant(const char *name)
 {
     SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;

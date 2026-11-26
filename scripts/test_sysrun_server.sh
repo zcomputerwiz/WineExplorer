@@ -1345,10 +1345,11 @@ for u in $C3_USERS; do
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
         hive_flush
-        # wine.inf gives the broker service a descriptor of its own (WexElevate), and the failure actions check gives
-        # WexSvcFa one, so the count is not 1 any more
+        # wine.inf gives the broker service a descriptor of its own (WexElevate) and the failure actions check gives
+        # WexSvcFa one: the services that have a saved descriptor are matched by key name, so another descriptor does
+        # not change this check
         [ "$(awk '/^\[/ { in_ls = ($0 ~ /Services.*WexSvcLs\]/) } in_ls && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 1 ] &&
-            [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 3 ] || fail "the service descriptor was not saved in the machine hive"
+            [ "$(awk '/^\[/ { in_s = (tolower($0) ~ /services.*(wexelevate|wexsvcls|wexsvcfa)\]/) } in_s && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 3 ] || fail "the service descriptor was not saved in the machine hive"
         ok c3_service_descriptor_saved_in_the_machine_hive
         rm -f "$SVCDIR"/*.txt
         probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
