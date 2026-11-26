@@ -826,6 +826,9 @@ expect_check() {   # the start-up check (scripts/wex-startup-check.sh) finished 
                    # is in the system journal, which the test user cannot read; whether Vintner Boot counted the
                    # start shows at the next one (vfailed, lastgoodgen).
     local out
+    # the check ends a few seconds after the desktop is up: it records the acknowledged fall-back failure with
+    # `vintner status` (wex-advanced-options --ack-failure) and saves the control set, so wait for it to end first
+    wait_unit_active wex-startup-check.service 90 || true
     out=$(gsh 'systemctl show -p ActiveState -p Result wex-startup-check.service | tr "\n" " "' | grep 'ActiveState=' | tail -n 1)
     echo "  start-up check: $out"
     case " $out " in
