@@ -110,7 +110,7 @@ class TestSyntax(unittest.TestCase):
         vm = VM_TEST.read_text(encoding="utf-8")
         desktop = vm[vm.index("\ndesktop() {"):]
         desktop = desktop[:desktop.index("\n}\n")]
-        self.assertLess(desktop.index("gsh 'echo serial=up' 20"), desktop.index('wait_text "Recycle Bin" 5; then'))
+        self.assertLess(desktop.index("gsh 'echo serial=up' 20"), desktop.index('wait_text "$DESKTOP_TEXT" 5; then'))
         self.assertIn("the serial console gave no prompt for", desktop)
         self.assertIn("no answer from the window probe over the serial console: the desktop found by OCR", desktop)
 
@@ -135,7 +135,7 @@ class TestSyntax(unittest.TestCase):
         for stage in ("accounts", "classic", "rundialog", "startrec", "waylanddisplay", "waylandsafe", "waylandcmd"):
             self.assertIn(stage, phases)
             self.assertIn(stage, chain)
-        self.assertIn("STAGES=(defaults startrec wayland classic accounts rundialog)", chain)
+        self.assertIn("STAGES=(defaults startrec wayland classic accounts rundialog popups shellrestart)", chain)
         self.assertIn('bash "$SRC/installer/tests/safe-mode.sh"', chain)   # the copy, not the checkout
         # and the runner itself runs from the copy (an edit of the checkout's copy broke a run once)
         self.assertLess(chain.index("tar -C \"$CHECKOUT\""),
@@ -1666,7 +1666,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # certain (XWayland stopped, the compositor alone ended) and LightDM must not restart
         vm = VM_TEST.read_text(encoding="utf-8")
         self.assertRegex(vm, r"\|waylandfallback\|waylandxlock[|)][^\n]*\) ;;")
-        self.assertIn("waylandlogon|waylandfallback|waylandxlock) saved_session restore", vm)
+        self.assertIn("waylandlogon|waylandfallback|waylandxlock|waylandshellrestart) saved_session restore", vm)
         phase = vm[vm.index("phase_waylandxlock() {"):]
         phase = phase[:phase.index("\n}\n")]
         self.assertLess(phase.index("kill -STOP $x && kill -TERM $c"), phase.index("logon_screen"))
@@ -1785,7 +1785,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # work order D4: the journal on the first serial port, read without logging on (it takes the port over);
         # the next start sends nothing there and the serial logon works
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|rundialog|debugmode|", vm)
+        self.assertIn("|waylandshellrestart|debugmode|", vm)
         self.assertIn("#   debugmode ", vm)
         phase = vm[vm.index("phase_debugmode() {"):]
         phase = phase[:phase.index("\n}\n")]
