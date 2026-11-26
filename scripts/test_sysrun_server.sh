@@ -5785,6 +5785,8 @@ for i in $(seq 1 40); do [ -s "$CH/bus.addr" ] && break; sleep 0.25; done
 ADDR="$(head -1 "$CH/bus.addr")"; [ -n "$ADDR" ] || fail "chain: no private bus"
 ADM_UID="$(id -u "$ADM")"
 printf 'sudo:x:27:alice,bob\nnopasswdlogin:x:1234:\n' > "$CH/group"; chown wexaccounts "$CH/group"
+# the common PAM stack the helper reads before it makes a blank (a stand-in: no nullok here; a test below puts one in)
+printf 'auth\t[success=1 default=ignore]\tpam_unix.so try_first_pass\nauth\trequisite\tpam_deny.so\n' > "$CH/common-auth"; chmod 0644 "$CH/common-auth"
 as_helper env FAKE_EXTRA="$ADM:$ADM_UID" FAKE_GROUPFILE="$CH/group" python3 "$SRC/scripts/accountsd-fake-bus.py" "$ADDR" "$CH/fake.log" > "$CH/fake.out" 2>&1 & FAKEPID=$!
 for i in $(seq 1 40); do grep -q READY "$CH/fake.out" && break; sleep 0.25; done
 grep -q READY "$CH/fake.out" || { cat "$CH/fake.out" >&2; echo "bus address [$ADDR]" >&2; kill "$BUSPID" 2>/dev/null; fail "chain: the fake bus did not start"; }
@@ -5800,7 +5802,7 @@ start_helper()
     s0_pid > "$CH/mainpid"
     rm -f /run/wineexplorer/accounts.sock
     as_helper env WEX_ACCOUNTSD_TEST=1 "$CH/wex-accountsd" --config /etc/wineexplorer/accountsd.conf --bus "$ADDR" --listen /run/wineexplorer/accounts.sock \
-        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob --group-file "$CH/group" >> "$CH/helper.log" 2>&1 & HELPERPID=$!
+        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob --group-file "$CH/group" --common-auth "$CH/common-auth" >> "$CH/helper.log" 2>&1 & HELPERPID=$!
     for i in $(seq 1 40); do [ -S /run/wineexplorer/accounts.sock ] && break; sleep 0.25; done
     chmod 0666 /run/wineexplorer/accounts.sock   # the file mode is not the authority: the helper checks its peer
 }
@@ -5946,6 +5948,13 @@ OPS="$(grep '"user": "zedoff"' "$CH/fake.log" | sed 's/.*"op": "\([A-Za-z]*\)".*
 OUT="$(el_na n9 pwblank carol)"
 [ "$(st <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; chain_fail "netapi: the elevated blank NetUserSetInfo 1003 gave [$(st <<<"$OUT")]"; }
 grep -q '"op": "SetPasswordMode", "user": "carol", "value": 2' "$CH/fake.log" || chain_fail "netapi: a blank password change did not become SetPasswordMode(NONE)"
+# fail closed: while the common PAM stack has nullok a blank is refused (NERR_PasswordTooShort, 2245) and nothing is made
+printf 'auth\t[success=1 default=ignore]\tpam_unix.so nullok try_first_pass\n' > "$CH/common-auth"
+OUT="$(el_na n12 addblank zednull)"
+[ "$(st <<<"$OUT")" = 2245 ] || { echo "$OUT" >&2; chain_fail "netapi: a blank add with nullok in the common stack gave [$(st <<<"$OUT")], not 2245"; }
+! grep -q '"user": "zednull"' "$CH/fake.log" || chain_fail "netapi: a refused blank add reached AccountsService"
+grep -q 'a blank password is refused' "$CH/helper.log" || chain_fail "netapi: the helper did not log the refusal"
+printf 'auth\t[success=1 default=ignore]\tpam_unix.so try_first_pass\nauth\trequisite\tpam_deny.so\n' > "$CH/common-auth"
 [ "$(el_na n10 del zedblank | st)" = 0 ] && [ "$(el_na n11 del zedoff | st)" = 0 ] || chain_fail "netapi: the blank test users were not deleted"
 ok st_netapi_blank_password_is_the_blank_form
 # the environment does not steer the client (the reviewer's M2): a process of the limited half, and the elevated one, ignore the old test

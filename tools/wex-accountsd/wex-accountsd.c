@@ -76,8 +76,9 @@ static struct
 static int test_mode, any_dumpable, no_idle_exit;
 static const char *test_bus, *test_listen, *test_login_defs, *test_admin_members, *test_mainpid_file;
 static pid_t test_mainpid = -1;
-static const char *group_path = "/etc/group", *passwd_path = "/etc/passwd";
+static const char *group_path = "/etc/group", *passwd_path = "/etc/passwd", *common_auth_path = "/etc/pam.d/common-auth";
 #else
+#define common_auth_path "/etc/pam.d/common-auth"
 #define group_path "/etc/group"
 #define passwd_path "/etc/passwd"
 #define test_mode 0
@@ -819,6 +820,30 @@ static int in_blank_group( const char *name )
     return found;
 }
 
+/* Fail closed: a blank password is made only while the common PAM stack refuses an empty password, that is, while no pam_unix
+ * line of /etc/pam.d/common-auth has nullok. A failed `wex-blank-pam.sh apply`, a later pam-auth-update or a libpam-runtime
+ * change can bring nullok back, and then an empty field would be taken by su and sudo. A stack that cannot be read counts as
+ * accepting. */
+static int pam_refuses_empty( void )
+{
+    char *line = NULL;
+    size_t cap = 0;
+    int ok = 1;
+    FILE *f = fopen( common_auth_path, "re" );
+
+    if (!f) return 0;
+    while (getline( &line, &cap, f ) > 0)
+    {
+        const char *p = line + strspn( line, " \t" );
+
+        if (*p == '#') continue;
+        if (strstr( p, "pam_unix" ) && strstr( p, "nullok" )) ok = 0;
+    }
+    free( line );
+    fclose( f );
+    return ok;
+}
+
 /* AccountsService on Debian does not keep nopasswdlogin (it runs passwd -d and nothing else), so a root-run unit does: it
  * makes the group's members exactly the accounts whose shadow field is empty (installer/blank/wex-accounts-blank-reconcile).
  * The helper only asks for it, through the one polkit grant, and checks the result in the group file. */
@@ -856,10 +881,15 @@ static int apply_password( const struct user_info *u, const char *hash, int will
 
     if (!hash[0])
     {
+        if (!pam_refuses_empty()) return WEXA_BLANK_REFUSED;
         if ((status = call_user_method( u, "SetPasswordMode", "i", 2 )) != WEXA_OK) return status;
         if (will_be_locked) return WEXA_OK;
-        if ((status = start_blank_reconcile()) != WEXA_OK) return status;
-        return wait_membership( u->name, 1 ) ? WEXA_OK : WEXA_BUSY;
+        /* from here the account is blank whatever the status says: the old password is gone (a BUSY below means the greeter
+         * does not take it yet, not that nothing changed) */
+        if ((status = start_blank_reconcile()) != WEXA_OK) { logf_( "user '%s' is blank, but the reconcile could not be started", u->name ); return status; }
+        if (wait_membership( u->name, 1 )) return WEXA_OK;
+        logf_( "user '%s' is blank (the old password is gone), but is not in %s yet", u->name, BLANK_GROUP );
+        return WEXA_BUSY;
     }
     if ((status = call_user_method( u, "SetPassword", "ss", hash, "" )) != WEXA_OK) return status;
     if (!in_blank_group( u->name )) return WEXA_OK;
@@ -920,6 +950,7 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         set_logname( logname, name );
         if (!valid_user_name( name ) || !valid_full_name( full ) || value > 1 || !password_form( hash )) return WEXA_BAD_ARGUMENT;
         if (!name_is_free( name )) return WEXA_EXISTS;
+        if (!hash[0] && !pam_refuses_empty()) { logf_( "a blank password is refused: PAM accepts empty passwords (nullok)" ); return WEXA_BLANK_REFUSED; }
         {
             sd_bus_error err = SD_BUS_ERROR_NULL;
             sd_bus_message *reply = NULL;
@@ -1028,6 +1059,7 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         /* a blank password for a disabled account would leave it neither blank nor disabled in a way that can be undone
          * (the lock puts "!" in the field): the account is enabled first, or given a password */
         if (!hash[0] && u.locked) return WEXA_BAD_ARGUMENT;
+        if (!hash[0] && !pam_refuses_empty()) { logf_( "a blank password is refused: PAM accepts empty passwords (nullok)" ); return WEXA_BLANK_REFUSED; }
         return apply_password( &u, hash, 0 );
     }
     return WEXA_BAD_REQUEST;
@@ -1135,6 +1167,7 @@ int main( int argc, char **argv )
         else if (test_mode && !strcmp( argv[i], "--mainpid-file" ) && i + 1 < argc) test_mainpid_file = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--group-file" ) && i + 1 < argc) group_path = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--passwd-file" ) && i + 1 < argc) passwd_path = argv[++i];
+        else if (test_mode && !strcmp( argv[i], "--common-auth" ) && i + 1 < argc) common_auth_path = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--any-dumpable" )) any_dumpable = 1;
         else if (test_mode && !strcmp( argv[i], "--no-idle-exit" )) no_idle_exit = 1;
 #endif

@@ -58,15 +58,33 @@ password later by `passwd(1)` would never leave the group. A root-run piece keep
    there brings `nullok` back as a second profile, found in the first lab run) and a copy without `nullok` takes its place. A
    new `libpam-runtime` writes Debian's profile to the diversion and leaves ours: it fails safe (never `nullok`), at the price of
    not following later changes of Debian's profile. Then `su`, `sudo`, `pkexec`, `login`, `sshd` and our elevation services
-   refuse an empty field. The greeter stays stock: Debian's `lightdm` stack has `auth sufficient pam_succeed_if.so user ingroup
-   nopasswdlogin` before `common-auth`, and the script adds the line to a listed service (`WEX_BLANK_PAM_SERVICES`, default
-   `lightdm`) only where it is missing. `wex-blank-pam.sh undo` puts Debian's profile back.
+   refuse an empty field. The greeter does **not** trust the group alone (reviewer, 2026-11-25): Debian's `auth sufficient pam_succeed_if.so user
+   ingroup nopasswdlogin` lets a member in without a password, also one who has a password, whenever the reconcile is late or
+   failed. In the greeter service (`WEX_BLANK_PAM_SERVICES`, default `lightdm`; **the greeter is assumed to be lightdm**) that line is
+   replaced by `auth [success=ignore default=1] pam_succeed_if.so quiet user ingroup nopasswdlogin` and `auth [success=done
+   default=ignore] pam_unix.so nullok`: an empty-field member gets in without a prompt, a member with a password must type it,
+   others fall through to `common-auth`. Only that service keeps `nullok`. `pam-auth-update` runs without `--force` and the script
+   dies with its message when it refuses. `wex-blank-pam.sh undo` puts Debian's profile back.
    - **The screen locker (G5):** the session has no lock screen yet (`Lock Computer` is not built). When it is, it must call a PAM
      service with the same `pam_succeed_if` line and no `nullok`, or a blank user could not unlock it.
 5. **Windows side.** `LogonUser` and `runas` with a blank password fail with `ERROR_ACCOUNT_RESTRICTION` (1327), except for the
    interactive logon of the console. Where our logon path (`logonui`, the consent prompt's credentials) does not exist or does
    not check yet, this is a follow-up, not part of this change. A network logon with a blank password (SMB, a Windows share
    served by the host) is refused by the same rule: it never goes through the greeter's service.
+
+## The invariant, and what fails closed
+
+**A user is in `nopasswdlogin` if and only if the shadow field is empty.** The reconcile (root) is the one writer of the group;
+nothing else adds or removes members. Every direction fails safe: a blank not yet in the group is refused by the greeter; a
+member who has a password (the reconcile late or failed) still has to type it at the greeter (the pair above); the helper
+**refuses to make a blank** (`WEXA_BLANK_REFUSED`, which netapi32 reports as `NERR_PasswordTooShort`, 2245, and the helper logs) while
+any `pam_unix` line of `/etc/pam.d/common-auth` has `nullok` or the file cannot be read, so a failed `wex-blank-pam.sh apply`, a later
+`pam-auth-update` or a `libpam-runtime` change cannot leave a blank account that `su` takes. netapi32 also honours the machine's
+`MinPasswordLength` (the registry policy of `NetUserModalsGet` level 0): when it is above 0 a blank or short password is 2245, as on
+Windows. The reconcile compares names as fixed strings (`.` is legal in a name).
+
+A `BUSY` from `NetUserSetInfo` 1003 with a blank password does **not** mean nothing changed: the old password is already gone
+(the field is empty) and only the group membership is late; the helper logs that ("is blank (the old password is gone)").
 
 ## Tests
 

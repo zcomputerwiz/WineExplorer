@@ -73,6 +73,15 @@ echo 'UID_MIN 0' > "$T/etc/login.defs"
 sh "$RECONCILE" > /dev/null
 case ",$(members "$T/etc/group")," in *,root,*) bad "reconcile: a UID_MIN of 0 let root in" ;; *) ok "reconcile: a UID_MIN of 0 is not trusted (root stays out)" ;; esac
 
+# names are compared as fixed strings: a '.' is not a wildcard (a member j.doe who now has a password must leave although a blank
+# jxdoe exists), and a name is not globbed
+printf 'j.doe:x:2001:2001::/:/bin/sh\njxdoe:x:2002:2002::/:/bin/sh\n' >> "$T/etc/passwd"
+printf 'j.doe:$6$s$h:19000:0:99999:7:::\njxdoe::19000:0:99999:7:::\n' >> "$T/etc/shadow"
+echo 'UID_MIN 1000' > "$T/etc/login.defs"
+sed -i '/^nopasswdlogin:/d' "$T/etc/group"; printf 'nopasswdlogin:x:1234:j.doe\n' >> "$T/etc/group"
+sh "$RECONCILE" > /dev/null
+case ",$(members "$T/etc/group")," in *,j.doe,*) bad "reconcile: j.doe (a password) stays in the group beside a blank jxdoe" ;; *,jxdoe,*) ok "reconcile: names are fixed strings (j.doe leaves, jxdoe is in)" ;; *) bad "reconcile: jxdoe is not in the group" ;; esac
+
 # the PAM files
 cat > "$T/usr/share/pam-configs/unix" << 'EOF'
 Name: Unix authentication
@@ -100,12 +109,16 @@ grep -q nullok "$T/usr/share/pam-configs/unix" && bad "pam: the profile still ha
 grep -q 'try_first_pass' "$T/usr/share/pam-configs/unix" && ok "pam: the rest of the profile is as it was" || bad "pam: the profile lost try_first_pass"
 [ "$(grep -c nullok "$T/usr/share/wineexplorer/pam-config-unix.distrib")" = 2 ] && ok "pam: Debian's profile is kept outside pam-configs" || bad "pam: the kept profile"
 [ ! -e "$T/usr/share/pam-configs/unix.distrib" ] && ok "pam: and no copy of it is in pam-configs (pam-auth-update would read it as a profile)" || bad "pam: a copy in pam-configs"
-grep -q 'ingroup nopasswdlogin' "$T/etc/pam.d/lightdm" && ok "pam: a greeter stack without the rule gets it" || bad "pam: lightdm has no group line"
+grep -q 'success=ignore default=1.*ingroup nopasswdlogin' "$T/etc/pam.d/lightdm" && grep -q 'success=done default=ignore.*pam_unix.so nullok' "$T/etc/pam.d/lightdm" &&
+    ok "pam: a greeter stack gets the pair (group, then pam_unix nullok)" || bad "pam: lightdm has no pair"
 [ "$(grep -c nopasswdlogin "$T/etc/pam.d/lightdm")" = 1 ] && ok "pam: once" || bad "pam: more than one line"
-awk '/nopasswdlogin/ { a = NR } /@include common-auth/ { b = NR } END { exit (a && b && a < b) ? 0 : 1 }' "$T/etc/pam.d/lightdm" &&
-    ok "pam: the rule comes before common-auth" || bad "pam: the rule is not before common-auth"
-[ "$(grep -c nopasswdlogin "$T/etc/pam.d/gdm-password")" = 1 ] && ok "pam: a stack that has the rule is not changed" || bad "pam: gdm-password changed"
-sh "$PAM" apply > /dev/null 2>&1 && [ "$(grep -c nopasswdlogin "$T/etc/pam.d/lightdm")" = 1 ] && ok "pam: apply twice changes nothing more" || bad "pam: second apply"
+awk '/nopasswdlogin/ { a = NR } /pam_unix.so nullok/ { c = NR } /@include common-auth/ { b = NR } END { exit (a && c && b && a < c && c < b) ? 0 : 1 }' "$T/etc/pam.d/lightdm" &&
+    ok "pam: the pair comes before common-auth" || bad "pam: the pair is not before common-auth"
+grep -q 'sufficient.*ingroup nopasswdlogin' "$T/etc/pam.d/gdm-password" && bad "pam: Debian's sufficient rule (trusts the group alone) is still there" ||
+    ok "pam: a stack with Debian's sufficient group rule gets the stricter pair instead"
+[ "$(grep -c nopasswdlogin "$T/etc/pam.d/gdm-password")" = 1 ] && ok "pam: and only one group line" || bad "pam: gdm-password group lines"
+cp "$T/etc/pam.d/lightdm" "$T/lightdm.once"
+sh "$PAM" apply > /dev/null 2>&1 && cmp -s "$T/lightdm.once" "$T/etc/pam.d/lightdm" && ok "pam: apply twice changes nothing more" || bad "pam: second apply"
 unset WEX_BLANK_ROOT WEX_BLANK_PAM_SERVICES
 
 # ---------------------------------------------------------------- the real machine
@@ -141,12 +154,14 @@ if [ "${1:-}" = --real ]; then
     # plus common-auth. Before the change the empty password is taken by the first; after, only by the second
     if cc -O1 -o "$T/pamauth" "$HERE/pamauth.c" -lpam 2> /dev/null; then
         printf '@include common-auth\naccount required pam_permit.so\n' > /etc/pam.d/wex-blank-test-common
-        printf 'auth sufficient pam_succeed_if.so user ingroup nopasswdlogin\n@include common-auth\naccount required pam_permit.so\n' > /etc/pam.d/wex-blank-test-greeter
-        trap 'cleanup; rm -f /etc/pam.d/wex-blank-test-common /etc/pam.d/wex-blank-test-greeter; rm -rf "$T"' EXIT
+        # the greeter's pair as wex-blank-pam.sh writes it, and Debian's sufficient rule for the comparison
+        printf 'auth [success=ignore default=1] pam_succeed_if.so quiet user ingroup nopasswdlogin\nauth [success=done default=ignore] pam_unix.so nullok\n@include common-auth\naccount required pam_permit.so\n' > /etc/pam.d/wex-blank-test-greeter
+        printf 'auth sufficient pam_succeed_if.so user ingroup nopasswdlogin\n@include common-auth\naccount required pam_permit.so\n' > /etc/pam.d/wex-blank-test-debian
+        trap 'cleanup; rm -f /etc/pam.d/wex-blank-test-common /etc/pam.d/wex-blank-test-greeter /etc/pam.d/wex-blank-test-debian; rm -rf "$T"' EXIT
         passwd -d zzblank1 > /dev/null; sh "$RECONCILE" > /dev/null
         printf '\n' | "$T/pamauth" wex-blank-test-common zzblank1 && ok "baseline: Debian's stack takes an empty password (nullok): the problem the change solves" ||
             bad "baseline: the empty password was refused before the change (is nullok gone already?)"
-        sh "$PAM" apply > /dev/null 2>&1 || bad "real: apply (second time)"
+        out=$(WEX_BLANK_PAM_SERVICES="lightdm wex-blank-test-greeter" sh "$PAM" apply 2>&1) || bad "real: apply (second time): $out"
         printf '\n' | "$T/pamauth" wex-blank-test-common zzblank1 && bad "real: the common stack (su, sudo, login, ...) takes an empty password" ||
             ok "real: the common stack refuses an empty password"
         printf '\n' | "$T/pamauth" wex-blank-test-greeter zzblank1 && ok "real: the greeter's stack takes a blank account in nopasswdlogin" ||
@@ -155,6 +170,14 @@ if [ "${1:-}" = --real ]; then
             bad "real: the greeter's stack refused a right password"
         printf '\n' | "$T/pamauth" wex-blank-test-greeter zzblank2 && bad "real: the greeter's stack took an empty answer for an account with a password" ||
             ok "real: the greeter's stack refuses an empty answer for an account with a password"
+        # a member who has a password (the reconcile is late or failed): Debian's rule lets anybody in, ours needs the password
+        gpasswd -a zzblank2 nopasswdlogin > /dev/null
+        printf '\n' | "$T/pamauth" wex-blank-test-debian zzblank2 && ok "baseline: Debian's sufficient rule takes an empty answer for a member who has a password (the hole)" ||
+            bad "baseline: Debian's rule refused (is the test meaningful?)"
+        printf '\n' | "$T/pamauth" wex-blank-test-greeter zzblank2 && bad "real: the greeter's pair let a member who has a password in without it" ||
+            ok "real: a member who has a password is refused without it"
+        printf 'Secret-pass-1\n' | "$T/pamauth" wex-blank-test-greeter zzblank2 && ok "real: and let in with it" || bad "real: a member with the right password was refused"
+        gpasswd -d zzblank2 nopasswdlogin > /dev/null
         # the root-run reconcile follows a password set later: the account is no longer let in without one
         echo 'zzblank1:Secret-pass-3' | chpasswd; sh "$RECONCILE" > /dev/null
         printf '\n' | "$T/pamauth" wex-blank-test-greeter zzblank1 && bad "real: the greeter's stack took an empty answer after a password was set" ||

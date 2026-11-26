@@ -441,6 +441,10 @@ def tests_blank(binary, tmp):
     with open(gf, 'w') as f:
         f.write('sudo:x:27:alice,bob\nnopasswdlogin:x:1234:\n')
     rig = Rig(binary, d, groupfile=gf)
+    ca = os.path.join(d, 'common-auth')   # a stack that refuses an empty password: no nullok on a pam_unix line
+    with open(ca, 'w') as f:
+        f.write('# here are the per-package modules\nauth\t[success=1 default=ignore]\tpam_unix.so try_first_pass\n'
+                'auth\trequisite\tpam_deny.so\n')
 
     def members():
         with open(gf) as f:
@@ -456,7 +460,8 @@ def tests_blank(binary, tmp):
         return [(x['op'], x.get('value')) for x in rig.calls() if x.get('user') == user]
 
     try:
-        rig.start_helper(extra=['--group-file', gf])
+        extra = ['--group-file', gf, '--common-auth', ca]
+        rig.start_helper(extra=extra)
         c = rig.connect()
         check(c.req(frame(LIST, verdict=USER))[0] == OK and blank_starts() == 1, 'blank: the reconcile is asked for once at the first connection')
         c.close()
@@ -529,9 +534,32 @@ def tests_blank(binary, tmp):
         os.unlink(rig.log + '.noreconcile')
         check(c.req(frame(PASSWORD, s('carol') + s(HASH)))[0] == OK and members() == [], 'password: and succeeds once the reconcile works')
         c.close()
+        # fail closed: while a pam_unix line of the common stack has nullok (or the stack cannot be read) a blank is refused, a hash is not
+        n_before = len(rig.calls())
+        c = rig.connect()
+        for text, why in (('auth\t[success=1 default=ignore]\tpam_unix.so nullok try_first_pass\n', 'nullok'),
+                          ('  auth [success=1] pam_unix.so nullok_secure\n', 'nullok_secure'), (None, 'no file')):
+            if text is None:
+                os.rename(ca, ca + '.gone')
+            else:
+                with open(ca, 'w') as f:
+                    f.write(text)
+            r = c.req(frame(CREATE, s('nia') + s('N') + u(0) + s('')))
+            check(r is not None and r[0] == 11, 'fail closed: a blank create is refused (%s): status %s' % (why, r and r[0]))
+            r = c.req(frame(PASSWORD, s('joe') + s('')))
+            check(r is not None and r[0] == 11, 'fail closed: a blank password change is refused (%s)' % why)
+            check(c.req(frame(PASSWORD, s('joe') + s(HASH2)))[0] == OK, 'fail closed: a hash is not refused (%s)' % why)
+            if text is None:
+                os.rename(ca + '.gone', ca)
+        check(not any(x.get('user') == 'nia' for x in rig.calls()[n_before:]) and
+              not any(x['op'] == 'SetPasswordMode' for x in rig.calls()[n_before:]), 'fail closed: nothing was created or made blank')
+        with open(ca, 'w') as f:
+            f.write('# auth [success=1] pam_unix.so nullok  (a comment)\nauth [success=1] pam_unix.so try_first_pass\n')
+        check(c.req(frame(CREATE, s('nia') + s('N') + u(0) + s('')))[0] == OK, 'fail closed: a commented nullok does not count')
+        c.close()
         # a restarted helper asks for the reconcile again
         before = blank_starts()
-        rig.start_helper(extra=['--group-file', gf])
+        rig.start_helper(extra=extra)
         c = rig.connect()
         c.req(frame(LIST, verdict=USER))
         check(blank_starts() == before + 1, 'blank: a restarted helper asks for the reconcile again')

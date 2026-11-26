@@ -15,10 +15,16 @@
 # Debian's profile to /usr/share/wineexplorer/pam-config-unix.distrib and leaves ours: it fails safe (never nullok), at the price of not following later
 # changes of Debian's profile (check it when libpam-runtime changes a lot).
 #
-# The greeter is not changed except where it lacks the rule: Debian's lightdm stack has
+# The greeter must not trust the group alone: Debian's lightdm stack has
 #   auth sufficient pam_succeed_if.so user ingroup nopasswdlogin
-# before common-auth. A service named in WEX_BLANK_PAM_SERVICES (default: lightdm) that exists and does not mention the
-# group gets that line before its first @include common-auth. The screen locker, when there is one, must call such a service.
+# before common-auth, which lets a member in without a password, also one who has a password (the group is kept by the
+# reconcile, which can be late or fail). In the services named in WEX_BLANK_PAM_SERVICES (default: lightdm) that exist that
+# line is replaced, before the first @include common-auth, by
+#   auth [success=ignore default=1] pam_succeed_if.so quiet user ingroup nopasswdlogin
+#   auth [success=done default=ignore] pam_unix.so nullok
+# A member whose field is empty gets in without a prompt (pam_unix accepts an empty field with nullok), a member who has a
+# password must type it, and everyone else falls through to common-auth. Only these services keep nullok. The screen locker,
+# when there is one, must call such a service. The greeter is assumed to be lightdm.
 # WEX_BLANK_ROOT redirects all paths under a test directory (and skips pam-auth-update and dpkg-divert).
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -30,7 +36,8 @@ PROFILE=$ROOT/usr/share/pam-configs/unix
 DISTRIB=$ROOT/usr/share/wineexplorer/pam-config-unix.distrib
 PAMD=$ROOT/etc/pam.d
 SERVICES=${WEX_BLANK_PAM_SERVICES:-lightdm}
-LINE='auth	sufficient	pam_succeed_if.so user ingroup nopasswdlogin'
+LINE1='auth [success=ignore default=1] pam_succeed_if.so quiet user ingroup nopasswdlogin'
+LINE2='auth [success=done default=ignore] pam_unix.so nullok'
 
 die() { echo "wex-blank-pam: $*" >&2; exit 1; }
 
@@ -44,17 +51,27 @@ drop_nullok() {
 add_group_line() {
     f=$PAMD/$1
     [ -f "$f" ] || return 0
-    grep -q nopasswdlogin "$f" && return 0
-    awk -v line="$LINE" '
-        !done && $0 ~ /^@include[ \t]+common-auth/ { print line; done = 1 }
+    if grep -qxF -- "$LINE1" "$f" && grep -qxF -- "$LINE2" "$f" && ! grep -v -xF -e "$LINE1" "$f" | grep -q 'ingroup nopasswdlogin'; then
+        return 0
+    fi
+    # any other rule that lets the group in, and an earlier copy of ours, are taken out; ours go before common-auth
+    awk -v l1="$LINE1" -v l2="$LINE2" '
+        $0 == l1 || $0 == l2 { next }
+        /pam_succeed_if\.so.*ingroup nopasswdlogin/ { next }
+        !done && $0 ~ /^@include[ \t]+common-auth/ { print l1; print l2; done = 1 }
         { print }
         END { if (!done) exit 3 }
     ' "$f" > "$f.new" || { rm -f "$f.new"; echo "wex-blank-pam: $1 has no @include common-auth: not changed" >&2; return 1; }
     cat "$f.new" > "$f" && rm -f "$f.new"
-    echo "wex-blank-pam: $1 now lets nopasswdlogin in"
+    echo "wex-blank-pam: $1 now lets an empty password in only for members of nopasswdlogin"
 }
 
-remaining_nullok() { grep -rn --exclude='*.pam-old' --exclude='*.dpkg-*' --exclude='*~' nullok "$PAMD" 2> /dev/null; }
+# every file of /etc/pam.d with nullok except the greeter services (and the backups pam-auth-update leaves)
+remaining_nullok() {
+    set --
+    for s in $SERVICES; do set -- "$@" "--exclude=$s"; done
+    grep -rn --exclude='*.pam-old' --exclude='*.dpkg-*' --exclude='*~' "$@" nullok "$PAMD" 2> /dev/null
+}
 
 case ${1:-} in
 apply)
@@ -71,7 +88,9 @@ apply)
     chmod 0644 "$PROFILE.new"
     mv -- "$PROFILE.new" "$PROFILE"
     if [ -z "$ROOT" ]; then
-        DEBIAN_FRONTEND=noninteractive pam-auth-update --package --force > /dev/null || die "pam-auth-update failed"
+        # without --force: a common-* file that was edited by hand is not overwritten; then this stops and says so
+        out=$(DEBIAN_FRONTEND=noninteractive pam-auth-update --package 2>&1) ||
+            die "pam-auth-update refused ($out): resolve the local changes of /etc/pam.d/common-* and run this again"
     fi
     for s in $SERVICES; do add_group_line "$s" || exit 1; done
     if remaining_nullok; then die "nullok is still in $PAMD"; fi
@@ -83,7 +102,7 @@ undo)
     elif diverted; then
         rm -f -- "$PROFILE"
         dpkg-divert --quiet --remove --rename "$PROFILE" || die "dpkg-divert --remove failed"
-        DEBIAN_FRONTEND=noninteractive pam-auth-update --package --force > /dev/null || die "pam-auth-update failed"
+        out=$(DEBIAN_FRONTEND=noninteractive pam-auth-update --package 2>&1) || die "pam-auth-update refused ($out)"
     fi
     ;;
 status)

@@ -61,13 +61,16 @@ fi
 
 group_exists || groupadd --system "$GROUP" || exit 1
 
+# names are compared as fixed strings ('.' is legal in a name and is not a wildcard) and the lists are split on white space
+# only (no globbing of a name)
+set -f
 for u in $want; do
-    printf '%s\n' "$have" | grep -qx -- "$u" && continue
+    printf '%s\n' "$have" | grep -qxF -- "$u" && continue
     if gpasswd -a "$u" "$GROUP" > /dev/null; then echo "wex-accounts-blank: $u has an empty password: added to $GROUP"
     else echo "wex-accounts-blank: could not add $u to $GROUP" >&2; status=1; fi
 done
 for u in $have; do
-    printf '%s\n' "$want" | grep -qx -- "$u" && continue
+    printf '%s\n' "$want" | grep -qxF -- "$u" && continue
     if gpasswd -d "$u" "$GROUP" > /dev/null; then echo "wex-accounts-blank: $u has no empty password: removed from $GROUP"
     else echo "wex-accounts-blank: could not remove $u from $GROUP" >&2; status=1; fi
 done

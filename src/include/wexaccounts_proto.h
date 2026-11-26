@@ -61,7 +61,8 @@ enum wexa_status
     WEXA_UNAVAILABLE, WEXA_LAST_ADMIN, WEXA_BAD_REQUEST,
     /* made by the Windows-side service, never by the helper: the change was made, and the account map had not shown it
      * after the wait (about 10 s). The client treats it as success with a warning. */
-    WEXA_SYNC_PENDING
+    WEXA_SYNC_PENDING,
+    WEXA_BLANK_REFUSED   /* a blank password is refused on this machine: PAM still accepts empty passwords outside the greeter */
 };
 
 struct wexa_request
