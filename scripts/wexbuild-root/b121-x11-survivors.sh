@@ -32,6 +32,18 @@ echo "windows created before the kill: $before, in total: $after"
 if [ "$after" -ge $((before + 8)) ] && ! grep -q "FAILED\|ended" $PL && pgrep -f xwin-probe >/dev/null; then
     echo "PASS the program keeps creating windows after the shell restart"
 else RC=1; echo "FAIL the program stopped or cannot create windows"; tail -n 4 $PL; fi
+# a second and third kill in a row: the new manager must retain the desktop for the next restart as well
+for n in 2 3; do
+    pkill -9 -f 'C:.windows.system32.explorer.exe /desktop'
+    sleep 3
+    (timeout 150 ./wine explorer.exe /desktop=Default,1024x768 /shell >>$L 2>&1 &)
+    sleep 15
+    again=$(grep -c "created .* ok" $PL)
+    echo "windows created after kill $n: $again"
+    if [ "$again" -ge $((after + 8)) ] && ! grep -q "FAILED\|ended" $PL; then echo "PASS kill $n: the program still creates windows"
+    else RC=1; echo "FAIL kill $n: the program stopped"; tail -n 3 $PL; fi
+    after=$again
+done
 # the new shell's windows are there once: one taskbar-sized window at the bottom, one WineAppBar
 bars=$(xwininfo -root -tree 2>/dev/null | grep -c '"WineAppBar"')
 if [ "$bars" = 1 ]; then echo "PASS one shell's windows on the desktop"; else RC=1; echo "FAIL $bars WineAppBar windows (the dead shell's were not removed)"; fi
