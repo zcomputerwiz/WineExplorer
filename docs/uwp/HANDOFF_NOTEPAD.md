@@ -127,6 +127,17 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        thread, not blocked by a missing object. The UI thread side (Microsoft.UI.Composition creating drawing surfaces, hence
        `DCompositionCreateSurfaceHandle`, which Wine never receives) is where to look next; the clock itself is not the gap
        (`DCompositionWaitForCompositorClock` is implemented and returns 0 as on Windows).
+     - **Steady state of the CoreMessaging worker (2026-11-26, wintrace 25 s, Windows 11).** The worker thread repeats `2582`,
+       `SetTimer(hwnd,1,0)`, `SetTimer(hwnd,1,0x7fffffff)`, Drain2, `MsgWait(1 handle, infinite)` about 85 times (and the UI
+       side's 0x60 posts: `PostMessage(0x60,6)` 80 times, `SendMessageCallbackW(0x60,5,5)` 80 times, `NtAssociateWaitCompletionPacket`
+       685 times in all). Wine's run of the same length: 6 timer cycles, one `PostMessage(0x60,6)`, 27 associations, and `SetEvent`
+       on the process-wide handle that Windows's threads set 70 times (compositor, XAML and CoreMessaging threads) only at
+       start-up. The worker's own wait handle is set once; it is woken by completion packets (associations re-armed per round).
+       So the loop is self-sustaining on Windows and stops after start-up in Wine: some thread's wake of the next round never
+       happens. Probes of the individual calls match (`tests/uwp/alpc/compare`), so the missing link is between rounds
+       (who sets the events the packets are associated with). Finding that needs the call graph, which the TTD rule does not
+       allow us to read; the next step is to bisect with exported-call traces filtered to the events set just before each
+       Windows round.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
