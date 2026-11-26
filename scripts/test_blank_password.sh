@@ -177,6 +177,10 @@ if [ "${1:-}" = --real ]; then
         printf '\n' | "$T/pamauth" wex-blank-test-greeter zzblank2 && bad "real: the greeter's pair let a member who has a password in without it" ||
             ok "real: a member who has a password is refused without it"
         printf 'Secret-pass-1\n' | "$T/pamauth" wex-blank-test-greeter zzblank2 && ok "real: and let in with it" || bad "real: a member with the right password was refused"
+        # a wrong password of a member who has one: how many times is the user asked (the greeter's pair, then common-auth)
+        n=$(printf 'wrong-pass\n' | PAMAUTH_COUNT=1 "$T/pamauth" wex-blank-test-greeter zzblank2 2>&1 >/dev/null | sed -n 's/^prompts=//p')
+        if [ "$n" = 1 ]; then ok "real: a wrong password of a member who has one is asked for once"
+        else echo "note: a wrong password of a member who has one is asked for $n times (the greeter's pair, then common-auth)"; fi
         gpasswd -d zzblank2 nopasswdlogin > /dev/null
         # the root-run reconcile follows a password set later: the account is no longer let in without one
         echo 'zzblank1:Secret-pass-3' | chpasswd; sh "$RECONCILE" > /dev/null
