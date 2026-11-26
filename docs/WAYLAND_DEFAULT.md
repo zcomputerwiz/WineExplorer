@@ -175,9 +175,23 @@ way.
      - A trial (not shipped: the shell's scale-message handler also calling `WexWmConfigure` with the frame's physical
        geometry) did not fix it: 16 of 30 checks still failed over 5 runs. The earlier trials (observation guard, active
        frame authority) had the same result, so the shell side is probably not where the update is lost.
-     - Next: trace the driver (`winewayland.drv`: the preferred-scale handler in `wayland_surface.c` and the hosted
-       layout update / `configure_foreign` path in `wayland_wex.c`) and the compositor's handling of the foreign
-       frame's configure with the same timestamps; the shell's and the compositor's views above are already in place.
+     - **Driver trace** (temporary logging in `wayland_wex_update_hosting` and `wex_configured`, not kept): at every scale
+       change the driver sends one `configure_foreign` for the new logical client rectangle (for foot at 150%: 160x113
+       logical, serial N) and the group stays pending (`wex_group_pending`) while the Wine window changes size
+       several times; every later `update_hosting` returns early on that flag. The compositor answers the request about
+       two seconds later (its transaction timeout) with group status 2 (the hosted group is dropped), and the driver
+       re-adopts it at once (status 1, new serial). This happens at every scale change **in passing runs too** (11 to 16
+       status-2 answers per 3-cycle run in all four runs), so the timeout alone does not separate pass from fail. What
+       differs is which geometry wins at the re-adoption: the Wine frame's physical placement (pass) or the native
+       client's logical rectangle from the other scale (fail: the frame is moved to physical (347,209) and resized to
+       about 144x104 once the shell's two-second `geometry_pending` guard has expired).
+     - Reading: the transaction needs the native client to commit exactly the requested size, and foot (a cell grid with
+       its own size hints) does not, so the transaction always ends in the timeout and a detach/re-adopt, and the result
+       depends on a race in the re-adoption. This matches the lead in `docs/wayland-polish/item3-notes.md` (floating
+       clients may choose another size; `reconfigure_commit` requires the exact one). A fix is a design change, not a
+       one-line one: either the transaction accepts the size the native client chose within its hints (and the frame
+       follows it), or the re-adoption takes Wine's physical placement as authoritative and converts it to the new
+       scale. Neither is done; each must pass `wayland-scale-cycle.sh` ten times in a row before it ships.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
