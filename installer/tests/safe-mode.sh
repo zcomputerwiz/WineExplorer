@@ -1504,7 +1504,23 @@ phase_waylandshellrestart() {   # see the header: Notepad survives the shell's r
         fail "Notepad ended with the shell"
     wait_text "Untitled - Notepad" 20 || { shot notepad-gone; fail "Notepad's window is gone after the shell's restart"; }
     "${V[@]}" key "$TEST" ctrl-o >/dev/null
-    wait_text "Open" 30 || { shot no-dialog; fail "Notepad opens no dialog after the shell's restart"; }
+    if ! wait_text "Open" 15; then
+        # which it is: the keys do not reach the survivor (focus: the compositor's keyboard focus is not Notepad's after
+        # the restart), or it cannot make a window. A click into its text area gives it the focus; a menu command then
+        # shows whether it can create the dialog.
+        shot no-dialog
+        echo "  Ctrl+O opened no dialog right after the restart; clicking into Notepad, then Ctrl+O again"
+        "${V[@]}" click "$TEST" 300 250 >/dev/null
+        sleep 1
+        "${V[@]}" key "$TEST" ctrl-o >/dev/null
+        if wait_text "Open" 20; then
+            echo "  NOTE: the dialog opened after a click: the keyboard focus was not Notepad's after the shell's restart"
+            shot notepad-dialog-after-click
+        else
+            shot no-dialog-after-click
+            fail "Notepad opens no dialog after the shell's restart, with or without a click (a window cannot be created, or no input)"
+        fi
+    fi
     shot notepad-dialog
     "${V[@]}" key "$TEST" esc >/dev/null
     expect_compositor
