@@ -276,6 +276,31 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          and edit threads) is the other candidate.
        * Tracer trap: `combase.dll!RoGetActivationFactory` with `R` (return breakpoint) hung the first Notepad process before its
          restart (nested activations on one thread); trace activations with `_H` and no `R`.
+     - **When Windows starts a thread's text services, and the Wine side (2026-11-26, night; `tests/uwp/alpc/tsf-probe.c`).**
+       * Windows 11 (probe, one new thread per case): `msctf.dll` is loaded with the thread's first window (with its `IME` window).
+         The thread manager (`TF_GetThreadMgr` non-NULL), `CicMarshalWndClass`, `OleMainThreadWndClass` (an apartment),
+         `MSCTFIME UI` and `TextInputFramework.dll` come with the first **activation** of a window of the thread: `SetForegroundWindow`,
+         `SetFocus` (even on a hidden window), `ShowWindow(SW_SHOWDEFAULT)`, `WS_VISIBLE` at creation; not with `SW_SHOWNOACTIVATE`,
+         not for a message-only window. `ImmDisableTextFrameService` does not stop it. `CtfImmTIMActivate(hkl, TRUE)` called directly
+         gives the thread manager, `CicMarshalWndClass` and the apartment and returns 0; with FALSE nothing happens. The 32-bit export
+         takes two stack arguments (`stdcall`, 8 bytes; the probe's i686 build checks the stack).
+       * Wine branch `claude/ctfimm-tim` (on development d4f070ee): `imm32.CtfImmTIMActivate(hkl, activate)` implemented (apartment
+         through the existing implicit COM initialisation, then msctf's `TF_CreateThreadMgr` + `Activate`, kept per thread and
+         released with the implicit apartment) and called from the default IME window's `IME_INTERNAL_ACTIVATE`, which win32u sends
+         on activation. The probe now matches Windows in every case for the thread manager. Still different: no
+         `CicMarshalWndClass` / `MSCTFIME UI` (Wine's msctf has no such windows) and no `TextInputFramework.dll` (not in Wine).
+         Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate` (FALSE/TRUE/again; SW_SHOWNOACTIVATE then SetFocus); not run on the
+         host because the imm32 test installs a test IME into the system; the probe shows the same on Windows. Wine commit
+         15a48281. Lab (u13 tree, copy of the booted `claude/ldr-prefix`): imm32 test x86_64 5586 tests, i386 5589 tests, 0 failures
+         both; the 32-bit probe matches Windows (stack balanced, FALSE does nothing, TRUE and SW_SHOWDEFAULT give the manager).
+         msctf's `inputprocessor` test times out (300 s) in this lab with and without the change (pre-existing). Lab trap: a new
+         prefix from the u13 build hangs in `wineboot -u`; copy `claude/ldr-prefix` instead.
+       * Notepad with it (b37): the UI thread now has a thread manager (`TF_CreateThreadMgr` at 608.202, before TabData), and nothing
+         else moves: same windows, same activations (stops at `UserActivityRequestManager`), no InputSite, 1 clock call, no caret.
+         So the thread manager is not the missing piece by itself. Left on the text input side: `TextInputFramework.dll` (Windows
+         loads it from msctf on activation; with it comes a `SystemUserAdapterWindowClass`, i.e. the system CoreMessaging instance,
+         probe case A) and `InputHost.dll` (InputSite). Wine's prefix has only its builtin `coremessaging` and
+         `windows.ui.core.textinput`; neither creates `SystemUserAdapterWindowClass`.
        * Open on the RichEdit side (batch 1145 check): `EM_SETEDITSTYLE(0xe14018)` returns 0xe14018 under Wine and 0xe04018 on
          Windows (bit 0x10000); the native control decides that from its environment. Not caused by the loader rule.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
