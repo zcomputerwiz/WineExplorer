@@ -305,6 +305,21 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          timer, the private port, `SystemUserAdapterWindowClass`-style second window, `DcppUserAdapterWindowClass` style), then
          measure where the (1, 0) lands; if Windows posts it at completion time, post it from wineserver when the packet completes
          (the queue already knows its port).
+     - **The UI thread took the wrong CoreMessaging path (2026-11-27, night; `wt-isgui`, `guithread-probe.c` extended; b38).**
+       * Windows: Notepad's UI thread gets `IsGUIThread(FALSE)` = 1 when CoreMessagingXP asks, so it registers its wake packet
+         directly on the Init2 port (no private port, no cancel); only the input thread gets 0 and takes the private-port path.
+         Wine (b37) answered 0 on the UI thread too: its only user32 call before that is `RegisterClassW`, which did not count.
+       * Windows converts a thread on its first win32k call of any kind (probe: RegisterClassW, GetClassInfoExW, LoadCursorW,
+         LoadIconW, SetThreadDpiAwarenessContext, CreateCompatibleDC, GetDpiForSystem, SystemParametersInfoW,
+         RegisterWindowMessageW, GetKeyState, IsWindow(GetDesktopWindow()), GetStockObject all give 1). Wine branch
+         `claude/isguithread-win32k` 46da8d46: `set_gui_thread()` in NtUserRegisterClassExWOW, NtUserGetClassInfoEx and
+         alloc_dc_ptr; still not counted (client-side in Wine): RegisterWindowMessageW, GetStockObject, GetDpiForSystem,
+         SetThreadDpiAwarenessContext. Lab msg test: x86_64 188 failures (baseline), i386 207 (extra ones in WM_COPYDATA and
+         PrintWindow only), none in the IsGUIThread tests.
+       * b38 with it: the UI thread's wake packet goes straight to the Init2 port as on Windows. The stall is unchanged: after
+         the seven-packet batch round the wake packet is still not re-armed. The UI thread's first (1) wake comes 2.9 s after its
+         event was set because the thread is busy creating its Direct3D/OpenGL device under relay (3142 calls), not because a
+         wake is lost.
      - **What else the existing runs show; targets ranked (2026-11-27, later; b37 relay; Windows traces of 2026-11-26/27).**
        1. *CoreMessaging re-arm (both threads), primary.* Wine's UI thread wake packet (0x118, event 0xf8) is moved to the Init2
           port once (603.920) and never associated again; its event is still set 7 times afterwards (6 by the UI thread itself,
