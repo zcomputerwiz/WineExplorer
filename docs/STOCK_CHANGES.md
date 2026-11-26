@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## ntdll: a package's own DLL beats a builtin of the same name (UWP, Wine branch `claude/package-dll-load-order`, 2026-11-26)
+
+* `dlls/ntdll/unix/loadorder.c`: in `get_load_order()`, for a native file outside the system directory, a file inside a package
+  installation directory gets `native,builtin`. The directory is matched strictly: a component named `WindowsApps` (case-insensitive)
+  with, directly below it, a component that parses as a package full name (five `_` separated fields, the resource id may be empty,
+  a 13 character publisher id from the package manager's base32 alphabet). No substring match, no hard-coded publisher id, no registry
+  or session reads. Order of precedence is unchanged: `WINEDLLOVERRIDES`, the AppDefaults and DllOverrides keys, then the
+  program-as-module rule, then this rule, then the version heuristics.
+* Why: the version heuristic gives a native Microsoft file the builtin first. Notepad ships its own `riched20.dll` (Office RichEdit,
+  class `RichEditD2DPT`) that Wine's builtin lacks; Windows loads the package copy because it is not a known DLL.
+* Blast radius: only DLLs in package folders whose name equals a Wine builtin: `riched20`, the VC runtime (`vcruntime140`,
+  `msvcp140` and variants) and `d3dcompiler_47`. `system32`, `syswow64`, installers and other folders are unaffected. The builtin stays
+  as the fallback, and `riched20=b` in the registry or `WINEDLLOVERRIDES` still forces it.
+* Test: `dlls/kernel32/tests/loader.c` (`test_package_dll_order`): a stand-in native DLL with a Microsoft version resource, loaded by full
+  path from two package folders and from non-package folders (not a package name, wrong parent, publisher id too short or with a
+  letter outside the alphabet, four fields, below a sub-folder, `xWindowsApps`), and by bare name from a copy of the test program in the
+  package folder. No `todo_wine`; passes on Windows 11 (x86_64 and i386, 0 failures) and in Wine x86_64 (0 failures; 3 before the change).
+  The i386 run in Wine fails the same 70 pre-existing cases with and without the change (73 before).
+* Design: `docs/uwp/DESIGN_PACKAGE_DLL_LOAD_ORDER.md`.
+
 ## services, sechost: SERVICE_CONFIG_FAILURE_ACTIONS (B105, 2026-11-25)
 
 Wine branch `claude/b105-failure-actions` (9a0dd03a). Stock Wine accepted `ChangeServiceConfig2W(FAILURE_ACTIONS)`
