@@ -5189,7 +5189,9 @@ manager killed with -9 leaves the X desktop window, and the other programs' wind
 to create new ones, alone. The manager that replaces it (`X11DRV_SetDesktopWindow`, the branch of B120) takes the old
 window over (`X11DRV_adopt_desktop`: events and cursor selected again, ButtonPress left out because the X server keeps
 the dead client's exclusive selection, size kept) instead of using the window it just made, and destroys the dead
-shell's own children (windows with `_NET_WM_PID` of a process that no longer exists). Check:
+shell's own children (windows with `_NET_WM_PID` of a process that no longer exists); a refusal of the new selection (BadAccess)
+makes the adoption fail and the new window stays. Only the desktop named Default is retained (the session shell's); another
+desktop a program makes goes when it ends. Check:
 `scripts/wexbuild-root/b121-x11-survivors.sh` (Xvfb, `scripts/xwin-probe.c`; fails without the variable).
 Not done: the X server keeps the dead manager's other resources (cursor, colormap, hidden helper windows) until the
 session ends.
