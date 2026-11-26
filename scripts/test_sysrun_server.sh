@@ -4553,6 +4553,29 @@ ok c7_msi_gate_refuses_a_per_user_install
 el_cmd c7_msi_gate_per_machine "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 1 > $(winpath $EL/gate1.txt)"
 grep -q '^gate=0' "$EL/gate1.txt" && grep -q '^host=ready' "$EL/gate1.txt" || { cat "$EL/gate1.txt" >&2; fail "an elevated per-machine request got no SYSTEM host"; }
 ok c7_msi_gate_starts_a_host_for_an_elevated_per_machine_install
+out="$(wine_as "$STD" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r')"
+grep -q '^gate=0' <<<"$out" && { echo "$out" >&2; fail "a standard user got a SYSTEM host"; }
+ok c7_msi_gate_refuses_a_standard_user
+# the audit, from session 0 (System log, source WexMsiServer): each action run as SYSTEM (3) and each refusal (2)
+[ -x "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp64.exe" \
+    "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll
+chmod 755 "$ROOT/probes/evp64.exe"
+s0_wine "$ROOT/probes/evp64.exe" read System | tr -d '\r' > "$ROOT/msisys-events.txt"
+for a in Act SysDll32 SysDll64; do
+    grep -q "id=3 .*source=WexMsiServer .*first=$a\$" "$ROOT/msisys-events.txt" || { grep WexMsiServer "$ROOT/msisys-events.txt" >&2; fail "no audit event for the SYSTEM action $a"; }
+done
+grep -q 'id=3 .*source=WexMsiServer .*first=ImpDll32$' "$ROOT/msisys-events.txt" && fail "an impersonated action was audited as a SYSTEM action"
+ok c7_msi_each_system_action_is_audited_in_session0
+# the limited administrator and the elevated per-user request are refused by the service (the standard user's session
+# may already be stopped at the bridge, before the service): two logged refusals at least
+[ "$(grep -c 'id=2 .*source=WexMsiServer' "$ROOT/msisys-events.txt")" -ge 2 ] || { grep WexMsiServer "$ROOT/msisys-events.txt" >&2; fail "the gate's refusals were not logged"; }
+ok c7_msi_gate_refusals_are_logged
+# an elevated per-user install: its actions without impersonation run as the user (no host), as on Windows
+el_cmd c7_msi_elevated_per_user "$ADM" "msiexec /i $(winpath $MS/peruser.msi) /qn"
+f="$EL/out.SysDll32"
+[ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" != S-1-5-18 ] && [ "$(el_fact "$f" session)" != 0 ] ||
+    { cat "$f" >&2; fail "a per-user install's action without impersonation did not run as the user"; }
+ok c7_msi_per_user_install_runs_actions_without_impersonation_as_the_user
 msi_case c7_msi_per_machine_cancel_is_user_exit machine cancel 1602
 ok c7_msi_per_machine_cancel_returns_error_install_userexit
 # a per-user install does not elevate and asks nothing. It does not complete either while elevation is enforced: opening the

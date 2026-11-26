@@ -12,7 +12,9 @@ for first is done ("What Windows does"). Asked for by the orchestrator after the
 
 **Draft 4 (2026-11-26), before building:** reading the code for the implementation found five places where draft 3
 assumed more than exists; "Draft 4: what the code allows" (after the proposal) corrects them. Points 1 (the gate) and
-3 (transport) change, the rest of B stands. Awaiting the reviewer's and the orchestrator's word on that section.
+3 (transport) change, the rest of B stands. **GO from both (2026-11-26)**, with conditions written into that section:
+the reviewer's (no full-token requirement, the endpoint not squattable, one host per architecture, GetMode, untrusted
+replies, leftovers, tests) and the orchestrator's (an audit event per action, logged refusals, the folder).
 
 ## The problem
 
@@ -153,10 +155,19 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
    No server keeps a per-link consent. So point 1 becomes: the gate is **the server's own caller class** on the
    bridged connection, `wex_caller_class_of_pipe` = `WEX_CALLER_ELEVATED_ADMIN` (`token_caller_class`: Administrators
    enabled, High integrity or more, not limited; the same decision wevtsvc's and the accounts service's elevated
-   verdicts use), plus `TokenElevationTypeFull` on the impersonated token (the class also admits `Default`). The
-   account and session parts rest on session 0's record; the elevation part on the user's server's attestation (T1),
-   as for those services. A per-link consent record in session 0 would be new work across E1 and T1, not part of B;
-   the boundary paragraph above already says what elevation protects.
+   verdicts use). No further full-token requirement (the reviewer): a default-type token with Administrators enabled
+   at High integrity is an unfiltered administrator (UAC off, the built-in Administrator), whose per-machine install
+   Windows also runs as SYSTEM; only a filtered (limited) token is refused. **Elevation and the Administrators
+   membership are the user's server's attestation (T1)**, as for wevtsvc and the accounts service; the account and the
+   session are session 0's own record of the link. A link-bound SYSTEM, LocalService or NetworkService gets the USER
+   class, so a session's system role cannot pass. A per-link consent record in session 0 would be new work across E1
+   and T1, not part of B; the boundary paragraph above already says what elevation protects. Follow-up scheduled by
+   the orchestrator: `token_caller_class` checks a link-bound token's Administrators membership against session 0's
+   own accounts record, so that only the elevation rests on attestation.
+   **In place of the consent record, an audit** (the orchestrator): session 0 writes a System-log event (source
+   `WexMsiServer`) for every host it starts (event 1), every refusal (2, with the reason) and every action the host
+   runs (3, written by the host after the action: the action, its status and exit code, the package's path and
+   ProductCode, the caller's account and session as the service told the host).
 2. **Per machine is the client's statement.** Session 0 cannot evaluate the install's context (command-line
    `ALLUSERS`); the elevated `msiexec` asks only when `package->Context == MSIINSTALLCONTEXT_MACHINE`, and states it in
    the request. A per-user install therefore never asks (test: its no-impersonation actions run as the user); session 0
@@ -182,14 +193,32 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
    (what Windows gives a deferred action), `ProcessMessage`, `GetMode`, `GetLanguage`, `FormatRecord`, `CloseHandle`,
    `GetActionInfo` (its own action's info); everything else returns `ERROR_ACCESS_DENIED` (test: a database call from a
    SYSTEM action is refused). Impersonated actions keep today's behaviour.
+   **As built:** the forwarding is a relay of the action's own ncalrpc channels, filtered in the client by call and
+   argument: a bind only to msi's interface; a request only of those operations, each on the restricted handle the
+   client gave a host action (`GetActionInfo`: an action of the host), otherwise a fault with `ERROR_ACCESS_DENIED`.
+   The restricted handle is never the whole package: on it `GetProperty` answers the three properties (others empty),
+   `GetMode` answers `SCHEDULED`, `ROLLBACK` and `COMMIT` and FALSE otherwise, `FormatRecord` formats without the
+   package's properties. The host reads the client's frames as untrusted (sizes that add up, terminated strings, RPC
+   answers with a valid header); a malformed one ends the connection.
+   **The endpoint** (the reviewer): a random name chosen by the host, created with `FILE_FLAG_FIRST_PIPE_INSTANCE`
+   before the host reports ready (so before any action loads), DACL SYSTEM only.
 8. **Script actions** run in the client in Wine (not in the `-Embedding` host). Point 5 of B's answer: they stay in the
    client with the FIXME naming the action, until the host can run msi's script host.
 9. **The event** for each host started: written with the event log protocol (`wine/wex_eventlog.h`, the System log;
    `ReportEventW` is still a stub).
 10. **The folder** is protected by Unix permissions too (owned by the session 0 account, mode 0700): the elevated
-    client keeps the system group's raised file access, so an NT ACL alone would not keep it out.
+    client keeps the system group's raised file access, so an NT ACL alone would not keep it out. As built the host
+    sets only the NT ACL and relies on the session 0 account's ownership and umask for the Unix mode; whether the
+    elevated client's group access can write it is still to be checked on a run (not yet verified). The host removes it
+    when the install's script ends, successfully or not (the client's END, or its connection breaking); the service
+    removes a crashed host's folder when it starts.
 11. **An existing case changes:** `c7_msi` asserts `elevation=2` for its 3138 action (deferred, no impersonation);
-    under B that action is SYSTEM in session 0, so the case moves to the new section's expectations.
+    under B that action is SYSTEM in session 0, so the case moves to the new section's expectations. As built, the
+    tests are in `c7_msi` itself: the EXE and 32- and 64-bit DLL actions as SYSTEM in session 0 with a deferred
+    action's view, an impersonated DLL action as the elevated user, the folder gone, the gate's refusals (a limited
+    administrator, a standard user, an elevated per-user request) logged, every SYSTEM action audited, and an elevated
+    per-user install whose action without impersonation runs as the user. Not covered: a default-type administrator's
+    install (no fixture makes such a token yet).
 
 ## B is an interim
 

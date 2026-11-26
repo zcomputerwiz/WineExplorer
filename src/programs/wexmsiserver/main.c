@@ -50,10 +50,8 @@
 #include "wine/wex_msisys.h"
 
 #define SERVICE_NAME    L"wexmsiserver"
-#define EVENT_SOURCE    L"WexMsiServer"
+#define EVENT_SOURCE    WEX_MSISYS_EVENT_SOURCE
 #define MAX_CONNECTIONS 64
-#define EVENT_HOST_STARTED  1
-#define EVENT_REFUSED       2
 
 static SERVICE_STATUS_HANDLE status_handle;
 static SERVICE_STATUS service_status = { SERVICE_WIN32_OWN_PROCESS, SERVICE_START_PENDING, 0, NO_ERROR, 0, 0, 0 };
@@ -137,45 +135,85 @@ struct caller
     BYTE   sid[SECURITY_MAX_SID_SIZE];
     DWORD  sid_size;
     WCHAR  sid_string[192];
+    WCHAR  session[16];
 };
 
-/* an elevated administrator (the server's verdict on this connection), with a full token */
-static DWORD check_caller( HANDLE pipe, struct caller *caller )
+/* who asks, for the events: the account and the session, whatever the verdict */
+static void identify( HANDLE pipe, struct caller *caller )
 {
     BYTE user_buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
     TOKEN_USER *user = (TOKEN_USER *)user_buffer;
-    TOKEN_ELEVATION_TYPE elevation = 0;
     WCHAR *sid_string;
     HANDLE token;
+    ULONG session;
     DWORD size;
     BOOL ok;
 
-    if (wex_caller_class_of_pipe( pipe ) != WEX_CALLER_ELEVATED_ADMIN) return ERROR_ACCESS_DENIED;
-
-    if (!ImpersonateNamedPipeClient( pipe )) return ERROR_ACCESS_DENIED;
+    if (GetNamedPipeClientSessionId( pipe, &session ))
+        swprintf( caller->session, ARRAY_SIZE(caller->session), L"%lu", session );
+    if (!ImpersonateNamedPipeClient( pipe )) return;
     ok = OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token );
     RevertToSelf();
-    if (!ok) return ERROR_ACCESS_DENIED;
-    ok = GetTokenInformation( token, TokenElevationType, &elevation, sizeof(elevation), &size ) &&
-         GetTokenInformation( token, TokenUser, user, sizeof(user_buffer), &size );
-    CloseHandle( token );
-    if (!ok || elevation != TokenElevationTypeFull) return ERROR_ACCESS_DENIED;
-
-    caller->sid_size = GetLengthSid( user->User.Sid );
-    if (caller->sid_size > sizeof(caller->sid)) return ERROR_ACCESS_DENIED;
-    memcpy( caller->sid, user->User.Sid, caller->sid_size );
-    if (ConvertSidToStringSidW( user->User.Sid, &sid_string ))
+    if (!ok) return;
+    if (GetTokenInformation( token, TokenUser, user, sizeof(user_buffer), &size ) &&
+            GetLengthSid( user->User.Sid ) <= sizeof(caller->sid))
     {
-        lstrcpynW( caller->sid_string, sid_string, ARRAY_SIZE(caller->sid_string) );
-        LocalFree( sid_string );
+        caller->sid_size = GetLengthSid( user->User.Sid );
+        memcpy( caller->sid, user->User.Sid, caller->sid_size );
+        if (ConvertSidToStringSidW( user->User.Sid, &sid_string ))
+        {
+            lstrcpynW( caller->sid_string, sid_string, ARRAY_SIZE(caller->sid_string) );
+            LocalFree( sid_string );
+        }
     }
-    return ERROR_SUCCESS;
+    CloseHandle( token );
+}
+
+/* the gate: the server's verdict on this connection must be an elevated administrator (Administrators enabled, High
+ * integrity or more, not a filtered token: a full token or an unfiltered administrator's). Elevation and the
+ * membership are the user's server's attestation (T1), as for the event log's and the accounts service's verdicts;
+ * the account and the session are session 0's own record of the link. */
+static DWORD check_caller( HANDLE pipe )
+{
+    return wex_caller_class_of_pipe( pipe ) == WEX_CALLER_ELEVATED_ADMIN ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
+}
+
+/* a crashed host leaves its folder: none runs when the service starts, so every WexSys folder is a leftover */
+static void remove_leftovers( void )
+{
+    WCHAR dir[MAX_PATH], path[MAX_PATH], sub[MAX_PATH];
+    WIN32_FIND_DATAW data, file;
+    HANDLE find, files;
+
+    if (!GetWindowsDirectoryW( dir, ARRAY_SIZE(dir) )) return;
+    swprintf( path, ARRAY_SIZE(path), L"%s\\Installer\\WexSys*", dir );
+    if ((find = FindFirstFileW( path, &data )) == INVALID_HANDLE_VALUE) return;
+    do
+    {
+        if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        swprintf( sub, ARRAY_SIZE(sub), L"%s\\Installer\\%s\\*", dir, data.cFileName );
+        if ((files = FindFirstFileW( sub, &file )) != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                if (file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                swprintf( sub, ARRAY_SIZE(sub), L"%s\\Installer\\%s\\%s", dir, data.cFileName, file.cFileName );
+                DeleteFileW( sub );
+            } while (FindNextFileW( files, &file ));
+            FindClose( files );
+        }
+        swprintf( sub, ARRAY_SIZE(sub), L"%s\\Installer\\%s", dir, data.cFileName );
+        if (RemoveDirectoryW( sub )) fprintf( stderr, "wexmsiserver: removed a crashed host's %ls\n", sub );
+    } while (FindNextFileW( find, &data ));
+    FindClose( find );
 }
 
 /* ------------------------------------------------------------------------------------------ the host */
 
-static DWORD start_host( HANDLE pipe, UINT32 arch, DWORD *pid )
+static DWORD start_host( HANDLE pipe, const struct wex_msisys_request *request, const struct caller *caller,
+                         DWORD *pid )
 {
+    UINT32 arch = request->arch;
     STARTUPINFOEXW si = { { sizeof(si) } };
     PROCESS_INFORMATION pi;
     WCHAR dir[MAX_PATH], path[MAX_PATH + 16], cmd[MAX_PATH + 64];
@@ -205,10 +243,19 @@ static DWORD start_host( HANDLE pipe, UINT32 arch, DWORD *pid )
         goto done;
     }
     swprintf( cmd, ARRAY_SIZE(cmd), L"\"%s\" -WexSysHost %Ix", path, (ULONG_PTR)inherit );
+    /* what the host's events say about the install: ours to set, under start_lock, inherited by the host only */
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_USER, caller->sid_string );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_SESSION, caller->session );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_PRODUCT, request->product );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_PACKAGE, request->package );
     ok = CreateProcessW( path, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, NULL, dir,
                          &si.StartupInfo, &pi );
     if (!ok) err = GetLastError();
-    else
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_USER, NULL );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_SESSION, NULL );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_PRODUCT, NULL );
+    SetEnvironmentVariableW( WEX_MSISYS_ENV_PACKAGE, NULL );
+    if (ok)
     {
         *pid = pi.dwProcessId;
         CloseHandle( pi.hThread );
@@ -234,7 +281,8 @@ static DWORD WINAPI connection_thread( void *param )
     struct wex_msisys_request request;
     struct caller caller = { { 0 } };
     WCHAR pid_string[16];
-    const WCHAR *strings[4];
+    const WCHAR *strings[5];
+    const WCHAR *reason = NULL;
     UINT32 status;
     DWORD done, pid = 0;
 
@@ -243,35 +291,39 @@ static DWORD WINAPI connection_thread( void *param )
         goto end;
     request.product[ARRAY_SIZE(request.product) - 1] = 0;
     request.package[ARRAY_SIZE(request.package) - 1] = 0;
+    identify( pipe, &caller );
 
-    /* the gate: an elevated administrator's per-machine install */
-    status = check_caller( pipe, &caller );
-    if (!status && !(request.flags & WEX_MSISYS_PER_MACHINE)) status = ERROR_ACCESS_DENIED;
+    /* the gate: an elevated administrator's per-machine install; every refusal is logged */
+    if ((status = check_caller( pipe ))) reason = L"not an elevated administrator";
+    else if (!(request.flags & WEX_MSISYS_PER_MACHINE))
+    {
+        status = ERROR_ACCESS_DENIED;
+        reason = L"a per-user install";
+    }
+    strings[0] = request.package;
+    strings[1] = request.product;
+    strings[2] = caller.sid_string;
+    strings[3] = caller.session;
     if (status)
     {
-        strings[0] = request.package;
-        strings[1] = request.product;
-        strings[2] = caller.sid_string;
-        write_event( EVENTLOG_WARNING_TYPE, EVENT_REFUSED, strings, 3, caller.sid_size ? caller.sid : NULL,
-                     caller.sid_size );
+        strings[4] = reason;
+        write_event( EVENTLOG_WARNING_TYPE, WEX_MSISYS_EVENT_REFUSED, strings, 5,
+                     caller.sid_size ? caller.sid : NULL, caller.sid_size );
         WriteFile( pipe, &status, sizeof(status), &done, NULL );
         goto end;
     }
 
     /* the answer before the host starts: from then on the connection is the host's */
     if (!WriteFile( pipe, &status, sizeof(status), &done, NULL )) goto end;
-    if ((status = start_host( pipe, request.arch, &pid )))
+    if ((status = start_host( pipe, &request, &caller, &pid )))
     {
         fprintf( stderr, "wexmsiserver: cannot start the host: %u\n", status );
         goto end;
     }
 
     swprintf( pid_string, ARRAY_SIZE(pid_string), L"%lu", pid );
-    strings[0] = request.package;
-    strings[1] = request.product;
-    strings[2] = caller.sid_string;
-    strings[3] = pid_string;
-    write_event( EVENTLOG_INFORMATION_TYPE, EVENT_HOST_STARTED, strings, 4, caller.sid, caller.sid_size );
+    strings[4] = pid_string;
+    write_event( EVENTLOG_INFORMATION_TYPE, WEX_MSISYS_EVENT_HOST, strings, 5, caller.sid, caller.sid_size );
     CloseHandle( pipe );  /* not disconnected: the host has the connection */
     InterlockedDecrement( &connections );
     return 0;
@@ -360,6 +412,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     status_handle = RegisterServiceCtrlHandlerExW( SERVICE_NAME, handler, NULL );
     if (!status_handle) return;
+    remove_leftovers();
     if ((listener = CreateThread( NULL, 0, listener_thread, NULL, 0, NULL )))
     {
         set_state( SERVICE_RUNNING, NO_ERROR );
