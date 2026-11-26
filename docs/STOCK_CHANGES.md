@@ -1,5 +1,21 @@
 # Changes to stock Wine / third-party code
 
+## user32, win32u: IsGUIThread (UWP, Wine branch `claude/isguithread`, 2026-11-26)
+
+* `dlls/user32/message.c`: `IsGUIThread` was a stub that returned TRUE. It now asks win32u (`NtUserCallOneParam_IsGUIThread`, a
+  Wine-private code in `include/ntuser.h`). `dlls/win32u/sysparams.c`: a thread counts as a GUI thread once it has session thread data
+  (it used the shared queue, desktop or input data), a server queue handle, or after a conversion; `IsGUIThread(TRUE)` converts and
+  returns TRUE. `dlls/user32/user_main.c`: the thread that loads user32 is converted. New field `gui_thread` in `user_thread_info`.
+* Measured on Windows 11 (`tests/uwp/alpc/guithread-probe.c`): a new thread returns 0 until its first win32k call; GetSystemMetrics,
+  GetDC, PeekMessage and CreateWindowEx each make it 1; `IsGUIThread(TRUE)` returns 1 without changing the last error. Wine now gives the
+  same answers for all of these.
+* Why: Windows App SDK's CoreMessagingXP asks `IsGUIThread(FALSE)` on each new dispatcher thread and sets up its private completion port
+  and wait packets only when the answer is 0, as on Windows. With TRUE it took another path. Notepad's stall is not fixed by this alone.
+* Blast radius: no Wine module called `IsGUIThread`; programs that ask now get FALSE on threads that have not touched user32 or gdi.
+* Test: `dlls/user32/tests/msg.c` (`test_IsGUIThread`): main thread TRUE; a new thread FALSE twice, then TRUE after PeekMessage, or
+  after `IsGUIThread(TRUE)`. Wine lab, x86_64 and i386: the new checks pass; the msg test's other 188 failures (focus, PrintWindow,
+  window regions under Xvfb) are the same with and without the change.
+
 ## services, sechost: SERVICE_CONFIG_FAILURE_ACTIONS (B105, 2026-11-25)
 
 Wine branch `claude/b105-failure-actions` (9a0dd03a). Stock Wine accepted `ChangeServiceConfig2W(FAILURE_ACTIONS)`
