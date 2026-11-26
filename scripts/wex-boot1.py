@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 for _dir in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/wineexplorer/python"):
     if _dir not in sys.path:
@@ -65,6 +66,8 @@ RECOVERY_DEFAULT = 30    # seconds, as XP
 TIMEOUT_MAX = COUNTDOWN_MAX        # the dialog's range, as XP's
 PANIC_RESTART = 10       # seconds from a kernel panic to the restart, when Automatically restart is on
 VINTNER_SECONDS = 600    # a publish (Options) copies a kernel and an initramfs
+BLESS_UNIT = os.environ.get("WEX_BLESS_UNIT", "vintner-bless.service")
+BLESS_SECONDS = 20       # how long a read waits for the start's bless (B123: 7 s seen); D-Bus callers give up at 25 s
 
 
 read_conf = read_boot_conf
@@ -178,9 +181,36 @@ def run_vintner(args, run=None, timeout=VINTNER_SECONDS):
     return done.returncode, reply
 
 
-def menu_timeout(run=None):
-    """(Vintner Boot answers, its menu timeout)."""
+def bless_running(run=None):
+    """The start's `vintner bless` (vintner-bless.service, after the logon) is still running."""
+    run = run or subprocess.run
+    try:
+        done = run([SYSTEMCTL, "is-active", BLESS_UNIT], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return (done.stdout or "").strip() in ("activating", "deactivating", "reloading")
+
+
+def wait_bless(run=None, seconds=BLESS_SECONDS, sleep=time.sleep):
+    """Wait, up to SECONDS, until the start's bless has finished. Returns the seconds waited."""
+    waited = 0
+    while waited < seconds and bless_running(run):
+        sleep(1)
+        waited += 1
+    return waited
+
+
+def menu_timeout(run=None, sleep=time.sleep):
+    """(Vintner Boot answers, its menu timeout).
+    B123: right after a start, vintner-bless.service holds boot storage and the ESP mounted read-write for several
+    seconds, and the kernel refuses vintner's read-only mount meanwhile (it retries for 5 s only). So the read waits for
+    a running bless first, and a read that fails while vintner did run waits again and is tried once more."""
+    if os.access(VINTNER, os.X_OK):
+        wait_bless(run, sleep=sleep)
     code, reply = run_vintner(["menu-timeout", "--json"], run, timeout=60)
+    if code is not None and not (code == 0 and reply.get("ok")):
+        wait_bless(run, sleep=sleep)
+        code, reply = run_vintner(["menu-timeout", "--json"], run, timeout=60)
     if code == 0 and reply.get("ok") and isinstance(reply.get("timeout"), int):
         return True, min(max(reply["timeout"], 0), TIMEOUT_MAX)
     return False, 0
