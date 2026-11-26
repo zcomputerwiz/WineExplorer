@@ -115,6 +115,18 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        occlusion check (the first frame is drawn regardless; dxgi occlusion status, DXGI_STATUS_OCCLUDED from Present,
        cloaking or IsWindowVisible), or a batch without the sprite updates (compare the UI thread's Microsoft.UI.Composition
        calls between its text draws and the batch with Windows).
+     - **Compositor thread loop, Windows 11 against Wine (2026-11-26; wintrace on exported calls, lab +relay).** Windows, one
+       frame of the compositor thread (the one that calls `DCompositionCreateDevice2`): `DCompositionWaitForCompositorClock(0,
+       NULL, 80)`; `NtWaitForMultipleObjects(1 handle, timeout pointer)` (a poll); three `NtSetEvent`; `NtWaitForMultipleObjects(6
+       handles, infinite)`, which returns; five `NtWaitForSingleObject` on five handles (the compositor's worker threads);
+       next clock call. After its second clock call (some 25 s runs show a second thread calling the clock too) it makes three
+       `D3D11CreateDevice` calls, each followed by one `DCompositionCreateSurfaceHandle` (five handles in all), and commits again
+       and again. Wine: one clock call, one such cycle (three `SetEvent`, the six-handle wait), and the wait never returns: the
+       UI thread sits in its plain `GetMessageW` loop (it is not hung) and nothing signals the six handles again. The workers
+       exist (event wait, message loops, completion-port wait), so the compositor is idle for lack of a second batch from the UI
+       thread, not blocked by a missing object. The UI thread side (Microsoft.UI.Composition creating drawing surfaces, hence
+       `DCompositionCreateSurfaceHandle`, which Wine never receives) is where to look next; the clock itself is not the gap
+       (`DCompositionWaitForCompositorClock` is implemented and returns 0 as on Windows).
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
