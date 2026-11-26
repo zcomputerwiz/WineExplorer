@@ -2,7 +2,9 @@
 
 # Deferred custom actions without impersonation run as SYSTEM (msi; B108)
 
-Status: design note, draft 2, 2026-11-26. **The orchestrator's go for B (2026-11-26), with four conditions** written
+Status: design note, draft 3, 2026-11-26. **The reviewer's GO on B** with points a-g folded in (the boundary stated
+plainly, binaries written by the host, lifetime through rollback and commit, script actions, deferred-action limits,
+a separate `msiserver`, the measurement, done). **The orchestrator's go for B (2026-11-26), with four conditions** written
 in below: B is an interim (see "B is an interim"); the gate exactly as proposed, with refusal tests; the per-install
 folder made by the SYSTEM side; its own branches and batch, with B108 as the acceptance case. The measurement it asked
 for first is done ("What Windows does"). Asked for by the orchestrator after the `\BaseNamedObjects` audit
@@ -94,29 +96,50 @@ proposed.
    on the caller's described token (`link_bound_token`), and the install is per machine (`ALLUSERS=1` resolved, the
    condition `msi_package_file_is_machine` already uses). A standard user's per-user install never asks; its
    no-impersonation actions run as the user, as on Windows.
+   **The decision rests on session 0's own record**: the token session 0 bound for the caller over its link
+   (`link_bound_token`, the account binding and the elevation session 0 itself recorded for the consent), never on a
+   description the user's server sends with the request.
 2. **What is asked.** One request per install and architecture: "start the custom action host for install N". Session
-   0 starts `msiexec -Embedding` as SYSTEM in session 0 and ends it when the install ends or the client goes away.
-   The host only runs actions the client sends over its own connection; it accepts no other client.
+   0 starts `msiexec -Embedding` as SYSTEM in session 0. The host only runs actions the client sends over its own
+   connection; it accepts no other client.
 3. **Transport.** The bridge carries a session's opens to session 0's pipes, not the reverse, so the endpoints reverse
    for this host: the session 0 host creates its pipe (name from session 0, with a random part, DACL for the client's
-   SID only) and the client connects; the callbacks (`MsiGetProperty`, `MsiSetProperty`, `MsiProcessMessage`, the
-   database calls) go over that connection instead of `ncalrpc` to the client.
-4. **Files.** Session 0 (the SYSTEM side) creates the per-install folder under the machine root
-   (`C:\Windows\Installer\<random>`), owned by SYSTEM with access for SYSTEM and Administrators only, before any binary
-   goes there, and tells the client its name. The client writes the action's DLL (or Binary-table EXE) into it; the
-   host loads it from there. **The client never names a path the host executes:** a request names the action, and the
-   host finds the binary in its own folder by the action's Binary-table key. An EXE action naming an installed file
-   is started by the host from the package's own directory table (machine paths); one naming a file in the user's
-   profile is refused with a FIXME (Windows can, here session 0 cannot read the profile).
-5. **Children.** Processes an action starts are SYSTEM in session 0, which is what B108 needs.
-6. **Log.** Session 0 writes an event (the package, the user, the action name) for each host it starts.
+   SID only) and the client connects; the callbacks go over that connection instead of `ncalrpc` to the client.
+   **Only what a deferred action gets** (the reviewer's point e): `CustomActionData`, `ProductCode`, `UserSID`, the
+   message and log calls (`MsiProcessMessage`), as msi already restricts deferred actions today. The client enforces
+   it on its side, as msi does now, and opens no database call wider than that.
+4. **Files.** The client sends each action's binary (the DLL, the Binary-table EXE or the script) over the host's
+   pipe; **the session 0 host writes it** into a folder it owns (under the machine root, created by the SYSTEM side
+   before the first binary, SYSTEM and Administrators only) that the user's Linux uid cannot write, and loads or
+   starts it from there. Nothing can swap a binary between write and load (no other admin's uid either), and the
+   client never names a path the host executes: a request names the action, and the host takes the binary it wrote.
+   This matches Windows, where the service extracts the binaries to `C:\Windows\Installer\MSI*.tmp` (measured). An
+   EXE action naming an installed file is started by the host from the package's own directory table (machine
+   paths); one naming a file in the user's profile is refused with a FIXME (Windows can, here session 0 cannot read
+   the profile).
+5. **Action kinds** (the reviewer's point d): DLL actions (type 1 and its in-script forms) and EXE actions (types 2,
+   18, 34, 50 with in-script and no impersonation) run in the host, as measured on Windows. Script actions (VBScript
+   type 6, JScript type 5, and their forms, in script with 0x800) run in the host on Windows too; they are covered the
+   same way (the script text sent like a binary) if msi's script host works in the host process, else they stay in the
+   client with an explicit FIXME naming the action ("script custom action without impersonation runs as the user").
+6. **Lifetime** (the reviewer's point c): the host lives through the whole script, including the **rollback** and
+   **commit** phases, whose no-impersonation actions also run as SYSTEM after the install failed or finished; it ends
+   after the last of them, or when the client goes away. Ending the host never ends the processes an action started
+   (Omaha's service stays, as on Windows).
+7. **Children.** Processes an action starts are SYSTEM in session 0, which is what B108 needs.
+8. **Log.** Session 0 writes an event (the package, the user, the action name) for each host it starts.
+9. **Who serves it** (open question 2, the reviewer's choice): a separate `msiserver` service in session 0, as XP has,
+   which keeps parity and keeps `wexelevate`'s surface small. The caller check is shared with `wexelevate` as a
+   library, not a second copy.
 
-**The boundary.** An elevated administrator can already reach SYSTEM in session 0 by other ways the system allows:
-installing a service (session 0 starts it as LocalSystem), writing machine COM registrations. So B gives an
-administrator, after consent, no power they lack; it gives a standard user nothing. What must not happen: a process
-that is not that elevated install (another program of the session, a limited token, an elevated program that is not
-msiexec) obtaining a SYSTEM host. Hence the caller check on the described token, the per-install request, the host's
-single client, and the host's end with the install.
+**The boundary, plainly** (the reviewer's point a). The elevated `msiexec` runs as the same Linux uid as the user's
+limited processes, which can ptrace it or talk to the user's server, so "only an elevated msiexec" protects no more
+than WineExplorer's existing elevation does. That is accepted: an elevated administrator can already reach SYSTEM in
+session 0 by other ways the system allows (installing a service, which session 0 starts as LocalSystem; machine COM
+registrations), so B gives an administrator, after consent, no power they lack, and gives a standard user nothing.
+The boundary is session 0's own record of the consent (point 1). The refusal of an elevated program that is not
+`msiexec`, and its test, are **hygiene, not a boundary**. The per-install request, the host's single client and the
+binaries the host writes itself keep the SYSTEM host tied to the install it was started for.
 
 ## B is an interim
 
@@ -145,10 +168,13 @@ What behaves differently in session 0 (known kinds, for a package whose no-imper
   SYSTEM in session 0; a standard user's per-user install: the user three times. 32-bit and 64-bit actions.
 - **The gate (the orchestrator's condition):** a non-elevated caller asking is refused; a per-user install asking is
   refused (even elevated); an impersonated action of an elevated per-machine install stays in the elevated `msiexec`.
-- Refusals besides: an elevated non-msiexec program asking, a second client on the host's pipe, a request after the
-  install ended, a request naming a path (none is accepted: the host takes binaries only from its own folder).
-- The folder: created by session 0 before the first binary, owner SYSTEM, DACL SYSTEM and Administrators only, gone
-  after the install.
+- Refusals besides: a second client on the host's pipe, a request after the install ended, a request naming a path
+  (none is accepted: the host runs only binaries it wrote), a callback beyond what a deferred action gets; and, as
+  hygiene, an elevated program that is not `msiexec` asking.
+- The folder: written only by the host (the user's uid cannot write it), gone after the install.
+- Rollback and commit: a no-impersonation rollback action (forced failure) and a commit action run as SYSTEM in the
+  host; a process an action started outlives the host.
+- A script action without impersonation: in the host, or the FIXME (whichever point 5 settles).
 - **Acceptance (B108):** the Edge enterprise MSI run by the elevated user on a clean image (no WebView2) installs.
   B is built on its own WineExplorer and Wine branches and goes into its own batch, with this case retested.
 - Plain prefixes and development mode keep stock behaviour (no session 0: the bit stays ignored, with the WARN).
@@ -163,6 +189,7 @@ existing one (`wexelevate` already serves elevated requests in session 0). Each 
 
 1. Windows' token for the host: answered (measured above): SYSTEM in the user's session for an elevated install,
    the user otherwise.
-2. Which session 0 process takes the role: a new `msiserver` service (the Windows name) or `wexelevate`.
+2. Which session 0 process takes the role: answered (the reviewer): a separate `msiserver` service, with the caller
+   check shared with `wexelevate` as a library.
 3. Whether A is wanted as well later, for packages whose no-impersonation actions need the user's session (UI, the
    session's objects); none is known.
