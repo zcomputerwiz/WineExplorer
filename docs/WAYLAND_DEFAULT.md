@@ -158,10 +158,26 @@ way.
      steady for 12 s (not transient). Foot at 100%: (520,313)-(759,481). Seen after a scale change: at 150% the window
      at (780,470), 1.5 times its place (the compositor kept the logical position; stays 395x245), or at (521,314) (the
      physical place kept); and back at 100%: (780,470) (not restored), (347,209)-(490,312) (moved and shrunk by 1/1.5),
-     or correctly (520,313). The 1.5 and 1/1.5 factors point at a scale conversion applied to the hosted group's
-     position or size in the wrong direction, or twice, when the output scale changes. Root cause not found yet; the
-     trace the earlier notes ask for (scale, configure serial, requested and committed native size, frame and client
-     geometry, transaction end or timeout) is the next step (`docs/wayland-polish/item3-notes.md`).
+     or correctly (520,313). Of 6 traced runs (3 cycles each) 4 failed somewhere and runs differ, so it is a race.
+     **What the traces show (temporary logging in `native_event_to_wine`, the shell's scale-message handler and the
+     compositor's `view_adjust_for_layout_change`, not kept):**
+     - The two outcomes at 150% are two behaviours. *Logical place kept*: the compositor leaves the native view at its
+       logical position (520,313), so it appears at physical (780,470). *Physical place kept*: within 7 ms of the scale
+       change, before the shell's scale message is handled, the native view and the Wine frame are already at logical
+       (347,209) (= physical (520,313) / 1.5) and the native size is 160x101 logical. The compositor's trace shows the
+       view's pending geometry already changed when `view_adjust_for_layout_change` runs (that function skips its stock
+       clamping for hosted views, as designed), so the mover is the Wine side's coordinated layout update (the
+       driver's `WM_WAYLAND_WEX_UPDATE` after the scale event), not the compositor.
+     - Failures happen on the way back to 100%: the native view stays at logical (347,209), 144x104, and nothing moves
+       it back, so the Wine frame then follows the native rectangle to physical (347,209) once the shell's two-second
+       `geometry_pending` guard expires. In passing cycles the same coordinated update moves it to (520,313) again. So
+       the open question is why the driver's update at the return to 100% sometimes does not reach the compositor.
+     - A trial (not shipped: the shell's scale-message handler also calling `WexWmConfigure` with the frame's physical
+       geometry) did not fix it: 16 of 30 checks still failed over 5 runs. The earlier trials (observation guard, active
+       frame authority) had the same result, so the shell side is probably not where the update is lost.
+     - Next: trace the driver (`winewayland.drv`: the preferred-scale handler in `wayland_surface.c` and the hosted
+       layout update / `configure_foreign` path in `wayland_wex.c`) and the compositor's handling of the foreign
+       frame's configure with the same timestamps; the shell's and the compositor's views above are already in place.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
