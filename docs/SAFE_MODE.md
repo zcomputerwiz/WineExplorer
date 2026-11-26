@@ -195,6 +195,16 @@ and on a machine Vintner Boot did not start, with conditions on `vintner.bootsto
 is above 0, or a start through the menu that counts did not finish (below), outside Setup, it starts
 `wex-failure-screen.service`, which shows the failure screen on `tty1` (section 4).
 
+**A fall-back** (since 2026-11-26). When a newer generation uses up its tries, the loader starts the older good one,
+and `booted.failed_attempts` is 0 there, because the generation that booted was good. Vintner Boot reports it as
+`booted.fell_back`, `fell_back_from` (the generation that failed) and `fell_back_attempts` (`docs/status.md` of
+vintner-boot, pin a715fda or later). `wex-failure-check.service` shows the failure screen for that start too, once:
+the screen's start-up check records "failure G acknowledged" in `/var/lib/wineexplorer/fell-back-ack` only after
+the start succeeded (`wex-advanced-options --ack-failure`, run by `wex-startup-check.sh` once the logon screen is up),
+because Vintner keeps `fell_back` true until a newer generation boots good and keeps no record of what the product
+showed. A start that does not finish records nothing, so the next one shows the screen again; a newer failed
+generation is news again. Variant and recovery starts and Setup's starts do not show or record it.
+
 **Starts through the menu** (since 2026-11-12). On XP a Safe Mode start counts for nothing, while Enable VGA Mode
 counts as a normal start does: on the XP VM (2026-11-11) a successful one updated Last Known Good, and a reset during
 one brought the failure screen at the next start. Only Safe Mode is exempt on Windows, so every other choice of the
