@@ -111,8 +111,9 @@ class User(dbus.service.Object):
             u['wasblank'] = u.get('blank', False)
             u['blank'] = False
         elif u.get('wasblank'):
-            # usermod -U would leave "!" empty: shadow refuses to produce a passwordless account
-            raise dbus.exceptions.DBusException('unlock would leave no password', name='org.freedesktop.Accounts.Error.Failed')
+            # usermod -U would leave "!" empty: shadow refuses, and AccountsService (seen on the real machine, Debian 13)
+            # still returns success: the account stays locked
+            return
         u['locked'] = bool(v)
 
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='s')
@@ -136,7 +137,7 @@ class User(dbus.service.Object):
         injected('SetPasswordMode')
         log(op='SetPasswordMode', user=self.name, value=int(mode))
         self.u()['blank'] = int(mode) == 2
-        self.u()['wasblank'] = False
+        self.u()['wasblank'] = False   # passwd -d: the field is empty, no "!" left
 
 
 objects = {}

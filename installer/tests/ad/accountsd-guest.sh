@@ -26,7 +26,7 @@ check socket_enabled_and_listening bash -c 'systemctl is-enabled wex-accountsd.s
 check socket_file_root_0660_session0_group bash -c '[ "$(stat -c "%U:%G:%a" /run/wineexplorer/accounts.sock)" = root:wexsession0:660 ]'
 check account_has_no_other_group bash -c '[ "$(id -Gn wexaccounts)" = wexaccounts ] && ! id -nG wexaccounts | grep -qw wexsys'
 check socket_group_has_only_session0 bash -c '[ "$(getent group wexsession0 | cut -d: -f4)" = '"$S0_ACCOUNT"' ]'
-check accountsd_conf bash -c 'grep -qx "session0_user='"$S0_ACCOUNT"'" /etc/wineexplorer/accountsd.conf && grep -qx "session0_unit=wex-session0.service" /etc/wineexplorer/accountsd.conf && grep -qx "sync_unit=wex-accounts-sync.service" /etc/wineexplorer/accountsd.conf && grep -qx "helper_user=wexaccounts" /etc/wineexplorer/accountsd.conf && ["$(stat -c %a /etc/wineexplorer/accountsd.conf)" = 644 ]'
+check accountsd_conf bash -c 'grep -qx "session0_user='"$S0_ACCOUNT"'" /etc/wineexplorer/accountsd.conf && grep -qx "session0_unit=wex-session0.service" /etc/wineexplorer/accountsd.conf && grep -qx "sync_unit=wex-accounts-sync.service" /etc/wineexplorer/accountsd.conf && grep -qx "helper_user=wexaccounts" /etc/wineexplorer/accountsd.conf && [ "$(stat -c %a /etc/wineexplorer/accountsd.conf)" = 644 ]'
 check polkit_rule_installed test -f /etc/polkit-1/rules.d/49-wexaccounts.rules
 
 # 2. the identity of session 0's server: the unit's MainPID is the real wineserver (not a wrapper)

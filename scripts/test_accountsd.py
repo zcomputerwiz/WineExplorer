@@ -503,10 +503,18 @@ def tests_blank(binary, tmp):
         check(c.req(frame(CREATE, s('kim') + s('K') + u(0) + s(HASH) + b'xy'))[0] == BAD_REQUEST, 'create: bytes after the flag are refused')
         check(c.req(frame(CREATE, s('kim') + s('K') + u(0) + s(HASH) + u(1) + u(1)))[0] == BAD_REQUEST, 'create: two flags are refused')
         check(c.req(frame(GET, s('kim'), verdict=USER))[0] == NOT_FOUND, 'create: and nothing was made by those')
-        # enabling a disabled blank account is refused (usermod -U would leave it without a password); a password fixes it
-        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == BUSY, 'enable: a disabled blank account cannot be enabled as it is')
-        check(c.req(frame(PASSWORD, s('hank') + s(HASH2)))[0] == OK, 'enable: it can be given a password')
-        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == OK, 'enable: and then enabled')
+        # enabling a disabled blank account: the real usermod -U leaves "!" and AccountsService says success, so the account is still
+        # locked after the unlock: the helper makes it blank again and unlocks it (a hash account is unlocked in one call)
+        n0 = len(ops_of('hank'))
+        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == OK, 'enable: a disabled blank account is enabled')
+        tail = ops_of('hank')[n0:]
+        check(tail == [('SetLocked', False), ('SetPasswordMode', 2), ('SetLocked', False)], 'enable: unlock, blank again, unlock (%s)' % tail)
+        check(parse_record(c.req(frame(GET, s('hank'), verdict=USER))[1], 0)[0]['locked'] == 0, 'enable: it is enabled')
+        check('hank' in members(), 'enable: and it is a member of nopasswdlogin again')
+        n1 = len(ops_of('ida'))
+        check(c.req(frame(LOCKED, s('ida') + u(0)))[0] == OK and ops_of('ida')[n1:] == [('SetLocked', False)],
+              'enable: an account with a password is unlocked in one call, its password untouched')
+        check(c.req(frame(PASSWORD, s('hank') + s(HASH2)))[0] == OK and 'hank' not in members(), 'enable: a password takes it out of the group')
 
         # a failure of a step takes the new account away again
         with open(rig.log + '.fail', 'w') as f:

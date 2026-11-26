@@ -74,4 +74,10 @@ for u in $have; do
     if gpasswd -d "$u" "$GROUP" > /dev/null; then echo "wex-accounts-blank: $u has no empty password: removed from $GROUP"
     else echo "wex-accounts-blank: could not remove $u from $GROUP" >&2; status=1; fi
 done
+# a start that arrives while this runs is merged into this run, which may have read the shadow file before a change that
+# came with that start: read it once more a second later (the accounts helper also asks again until the group is right)
+if [ "${WEX_BLANK_PASS:-0}" -lt 1 ]; then
+    sleep 1
+    WEX_BLANK_PASS=1 exec "$0"
+fi
 exit $status

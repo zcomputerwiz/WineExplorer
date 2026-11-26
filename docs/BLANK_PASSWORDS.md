@@ -43,9 +43,11 @@ password later by `passwd(1)` would never leave the group. A root-run piece keep
    - a hash for a member is finished when the user is out of the group; if not, `BUSY` is returned and the helper logs it (the
      account is passwordless at the greeter until the reconcile runs, as it was before);
    - a blank for a **disabled** account is refused (`BAD_ARGUMENT`): `usermod -L` puts `!` in the field, so the account is not
-     blank, and unlocking it would leave no password (shadow's `usermod -U` refuses). A new blank and disabled account is made in
-     one create: NONE mode, then the lock; **enabling it later fails until it gets a password** (the helper answers `BUSY`; the
-     lab note in `accountsd-guest.sh` records what the real `usermod -U` does);
+     blank. A new blank and disabled account is made in one create: NONE mode, then the lock. **Enabling it** (measured on the real
+     machine, 2026-11-25): `SetLocked(false)` answers success and leaves the field `!` (shadow's `usermod -U` refuses to leave a
+     passwordless account; this AccountsService sets no expiry), so the helper checks `Locked` after an unlock and, if the account
+     is still locked (only a field of `!` does that: an account with a hash is unlocked normally), makes it blank again
+     (`SetPasswordMode(NONE)`), unlocks it and waits for the group; refused with the same fail-closed rule when the stack has `nullok`;
    - once per start of the helper, at its first connection, it starts the reconcile (a change made outside of us never stands).
 3. **The reconcile (`installer/blank/wex-accounts-blank-reconcile`, root).** Takes no argument and reads nothing from its caller:
    it makes the members of `nopasswdlogin` exactly the local accounts with an ordinary uid (`login.defs` range, never below 1000)
@@ -91,7 +93,7 @@ A `BUSY` from `NetUserSetInfo` 1003 with a blank password does **not** mean noth
 - Helper unit (`scripts/test_accountsd.py`, `tests_blank`): the empty string is a blank (`CreateUser`, `SetPasswordMode(2)`, never
   `SetPassword`); the reconcile is asked for once per start of the helper; a hash after a blank takes the user out of the group;
   a blank for a disabled account and for a system account is refused; the atomic create (blank and disabled, hash and disabled,
-  the order of the calls, bad flags); enabling a disabled blank account is refused until a password is set; a failing step rolls
+  the order of the calls, bad flags); enabling a disabled blank account (unlock, blank again, unlock) and a disabled account with a password (one unlock); a failing step rolls
   the create back; a reconcile that does not run makes a blank create fail (after about 8 s) and a hash for a member fail; no
   hash in the helper log.
 - Root side (`scripts/test_blank_password.sh`, add `--real` on a Debian machine that may be changed): the reconcile in a
