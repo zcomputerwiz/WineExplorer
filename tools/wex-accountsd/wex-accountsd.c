@@ -1039,18 +1039,15 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         if (value && u.uid == req->caller_uid) return WEXA_DENIED;
         if (value && is_admin_name( name ) && !other_active_admins( name )) return WEXA_LAST_ADMIN;
         if ((status = call_user_method( &u, "SetLocked", "b", (int)value )) != WEXA_OK || value) return status;
-        /* Enabling an account whose field is only "!" (a blank account that was disabled: usermod -L turned the empty field
-         * into "!") does nothing on the real AccountsService: shadow's usermod -U refuses to leave a passwordless account and
-         * AccountsService still answers success (the lab run of 2026-11-25). An account that is still locked after an unlock
-         * has no password to lose, so the blank form is made again and the unlock repeated. */
+        /* An account whose field is only "!" (a blank account that was disabled: usermod -L turned the empty field into "!", or
+         * an account that never had a password) is not enabled by this: shadow's usermod -U refuses to leave a passwordless
+         * account and AccountsService still answers success (the lab run of 2026-11-25). The account stays locked; it is not made
+         * blank again here (a "!" made by useradd for an ssh-key-only account would get a passwordless console logon): the
+         * caller is told to set a password first (a blank one included). */
+        sleep( 1 );   /* AccountsService may report Locked=false for a moment before its file monitor reloads the account */
         if (find_user( name, &u ) != WEXA_OK || !u.locked) return WEXA_OK;
-        if (!pam_refuses_empty()) { logf_( "enabling a blank account is refused: PAM accepts empty passwords (nullok)" ); return WEXA_BLANK_REFUSED; }
-        logf_( "user '%s' was still locked after an unlock: made blank again, then unlocked", logname );
-        if ((status = apply_password( &u, "", 1 )) != WEXA_OK) return status;
-        if ((status = call_user_method( &u, "SetLocked", "b", 0 )) != WEXA_OK) return status;
-        if (find_user( name, &u ) != WEXA_OK || u.locked) return WEXA_BUSY;
-        if ((status = start_blank_reconcile()) != WEXA_OK) return status;
-        return wait_membership( u.name, 1 ) ? WEXA_OK : WEXA_BUSY;
+        logf_( "user '%s' is still locked after an unlock: it has no password; set a password first", logname );
+        return WEXA_BAD_ARGUMENT;
 
     case WEXA_SET_TYPE:
         rd_str( &r, name, sizeof(name) );

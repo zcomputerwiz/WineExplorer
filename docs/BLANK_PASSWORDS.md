@@ -45,9 +45,12 @@ password later by `passwd(1)` would never leave the group. A root-run piece keep
    - a blank for a **disabled** account is refused (`BAD_ARGUMENT`): `usermod -L` puts `!` in the field, so the account is not
      blank. A new blank and disabled account is made in one create: NONE mode, then the lock. **Enabling it** (measured on the real
      machine, 2026-11-25): `SetLocked(false)` answers success and leaves the field `!` (shadow's `usermod -U` refuses to leave a
-     passwordless account; this AccountsService sets no expiry), so the helper checks `Locked` after an unlock and, if the account
-     is still locked (only a field of `!` does that: an account with a hash is unlocked normally), makes it blank again
-     (`SetPasswordMode(NONE)`), unlocks it and waits for the group; refused with the same fail-closed rule when the stack has `nullok`;
+     passwordless account; this AccountsService sets no expiry), so the helper looks at `Locked` a second after an unlock
+     and, if the account is still locked (only a field of `!` does that: an account with a hash is unlocked normally), **refuses**
+     (`BAD_ARGUMENT`, logged: "set a password first", a blank one included). It does not make the account blank again: a bare `!`
+     is also what an ssh-key-only account made by `useradd` has, and enabling it must not give it a passwordless console logon.
+     (A follow-up, KNOWN_BUGS B117: remember the accounts the helper itself disabled while blank, and make only those blank again;
+     check `Locked` against AccountsService's brief false right after `SetLocked(false)` on the real guest.);
    - once per start of the helper, at its first connection, it starts the reconcile (a change made outside of us never stands).
 3. **The reconcile (`installer/blank/wex-accounts-blank-reconcile`, root).** Takes no argument and reads nothing from its caller:
    it makes the members of `nopasswdlogin` exactly the local accounts with an ordinary uid (`login.defs` range, never below 1000)

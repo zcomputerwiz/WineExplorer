@@ -506,15 +506,16 @@ def tests_blank(binary, tmp):
         # enabling a disabled blank account: the real usermod -U leaves "!" and AccountsService says success, so the account is still
         # locked after the unlock: the helper makes it blank again and unlocks it (a hash account is unlocked in one call)
         n0 = len(ops_of('hank'))
-        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == OK, 'enable: a disabled blank account is enabled')
+        check(c.req(frame(LOCKED, s('hank') + u(0)))[0] == BAD_ARG, 'enable: a disabled account without a password is refused (set a password first)')
         tail = ops_of('hank')[n0:]
-        check(tail == [('SetLocked', False), ('SetPasswordMode', 2), ('SetLocked', False)], 'enable: unlock, blank again, unlock (%s)' % tail)
-        check(parse_record(c.req(frame(GET, s('hank'), verdict=USER))[1], 0)[0]['locked'] == 0, 'enable: it is enabled')
-        check('hank' in members(), 'enable: and it is a member of nopasswdlogin again')
+        check(tail == [('SetLocked', False)], 'enable: nothing is made blank again (%s)' % tail)
+        check(parse_record(c.req(frame(GET, s('hank'), verdict=USER))[1], 0)[0]['locked'] == 1, 'enable: it stays disabled')
+        check(c.req(frame(PASSWORD, s('hank') + s('')))[0] == BAD_ARG, 'enable: a blank password is refused for it while it is disabled')
         n1 = len(ops_of('ida'))
         check(c.req(frame(LOCKED, s('ida') + u(0)))[0] == OK and ops_of('ida')[n1:] == [('SetLocked', False)],
               'enable: an account with a password is unlocked in one call, its password untouched')
-        check(c.req(frame(PASSWORD, s('hank') + s(HASH2)))[0] == OK and 'hank' not in members(), 'enable: a password takes it out of the group')
+        check(c.req(frame(PASSWORD, s('hank') + s(HASH2)))[0] == OK and c.req(frame(LOCKED, s('hank') + u(0)))[0] == OK and
+              'hank' not in members(), 'enable: with a password it is enabled')
 
         # a failure of a step takes the new account away again
         with open(rig.log + '.fail', 'w') as f:
