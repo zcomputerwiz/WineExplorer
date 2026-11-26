@@ -258,11 +258,24 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          no further library, COM or activation call; there is no `CicMarshalWndClass`, no `TextInputFramework`, no
          `SystemUserAdapterWindowClass` anywhere, no InputSite. No COM creation and no `TF_*` export is involved in that Windows
          step (`CoCreateInstance`, `TF_CreateThreadMgr`, `TF_GetThreadMgr` traced: none on the UI thread there).
-       * Next: what the UI thread is doing after `WinUIEdit.dll` loads under Wine (its last calls and where it blocks; +relay with
-         msctf/imm32/user32 hooks visible), and on Windows which exported call of the UI thread precedes `CicMarshalWndClass`
-         (msctf's thread activation: `ImmGetDefaultIMEWnd`, `CtfImmIsTextFrameServiceDisabled`, `ITfThreadMgr` creation by
-         `msctf!TF_*` or a window hook). The missing system CoreMessaging instance (`SystemUserAdapterWindowClass`, which Windows
-         creates on the UI, input and edit threads) is the other candidate.
+       * Under Wine the UI thread is not blocked after `WinUIEdit.dll`: it keeps pumping (GetMessageW, the lab driver's keys reach
+         it); it just never starts the text input set-up.
+       * **What starts it on Windows (`wt-ctf`, `wt-ctf2`):** the UI thread's `ShowWindow(main window, SW_SHOWDEFAULT)`. Inside it,
+         after its `SetWindowPos` calls, user32 calls `imm32!CtfImmTIMActivate(0x04090409, 1, 0xc0008008, main window)`; inside that
+         `msctf` creates `CicMarshalWndClass`, then `TextInputFramework.dll` loads and the `MSCTFIME UI` window follows (with
+         `ImmGetDefaultIMEWnd` calls from msctf). Earlier calls with second argument 0 come from window creation (user32/uxtheme) on
+         each GUI thread; the edit thread's RichEdit later makes its own `(hkl, 1)` call (imm32, user32, comctl32, riched20).
+         `ImmDisableTextFrameService`, `CtfImmIsCiceroEnabled`, `CtfImmIsTextFrameServiceDisabled`, `TF_CreateThreadMgr`,
+         `TF_GetThreadMgr`, `TF_InitSystem` are not called. In Wine `imm32.CtfImmTIMActivate` is `@ stub` and nothing calls it;
+         Wine's `ShowWindow` does no TSF activation, so no `CicMarshalWndClass`, no `TextInputFramework`, no IME window.
+       * Next: (1) a probe on Windows: a plain window shown with `ShowWindow`, then the thread's TSF state (`ImmGetDefaultIMEWnd`,
+         `TF_GetThreadMgr`, whether `CicMarshalWndClass` exists on the thread), to pin down when user32 activates TSF (first show of
+         a top-level window? first activation?); (2) in Wine, implement `CtfImmTIMActivate` (activate msctf's thread manager for
+         the thread) and call it where Windows does, then rerun Notepad and see whether `TextInputFramework`'s part (not in
+         Wine) matters before InputSite. The missing system CoreMessaging instance (`SystemUserAdapterWindowClass` on the UI, input
+         and edit threads) is the other candidate.
+       * Tracer trap: `combase.dll!RoGetActivationFactory` with `R` (return breakpoint) hung the first Notepad process before its
+         restart (nested activations on one thread); trace activations with `_H` and no `R`.
        * Open on the RichEdit side (batch 1145 check): `EM_SETEDITSTYLE(0xe14018)` returns 0xe14018 under Wine and 0xe04018 on
          Windows (bit 0x10000); the native control decides that from its environment. Not caused by the loader rule.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
