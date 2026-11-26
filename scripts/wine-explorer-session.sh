@@ -37,6 +37,8 @@ case "$WEXMODE" in
     *) WEXMODE=normal ;;
 esac
 export WEXMODE
+# the X desktop window outlives the shell, so the programs that run across a shell restart keep their windows (B121)
+export WINE_X11_RETAIN_DESKTOP=1
 # Enable VGA Mode (the menu's start option, docs/SAFE_MODE_WORKORDER.md D2): a normal start at 640x480 with the display
 # driver it has, as XP's. It skips the saved display mode, so a mode chosen in Display Properties then replaces it.
 WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option 2>/dev/null) || WEXOPTION=

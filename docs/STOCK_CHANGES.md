@@ -5219,3 +5219,19 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## X11 virtual desktop: the desktop window outlives the shell (B121, 2026-11-26)
+
+Wine `claude/b121-retain-desktop` (on development): `dlls/winex11.drv/desktop.c`, `window.c`, `x11drv.h`. Only with
+`WINE_X11_RETAIN_DESKTOP` set (the X11 session script sets it; stock behaviour otherwise). The desktop manager's
+connection asks the X server to retain its resources when it goes (`XSetCloseDownMode( RetainTemporary )`), so a
+manager killed with -9 leaves the X desktop window, and the other programs' windows (its children) and their ability
+to create new ones, alone. The manager that replaces it (`X11DRV_SetDesktopWindow`, the branch of B120) takes the old
+window over (`X11DRV_adopt_desktop`: events and cursor selected again, ButtonPress left out because the X server keeps
+the dead client's exclusive selection, size kept) instead of using the window it just made, and destroys the dead
+shell's own children (windows with `_NET_WM_PID` of a process that no longer exists); a refusal of the new selection (BadAccess)
+makes the adoption fail and the new window stays. Only the desktop named Default is retained (the session shell's); another
+desktop a program makes goes when it ends. Check:
+`scripts/wexbuild-root/b121-x11-survivors.sh` (Xvfb, `scripts/xwin-probe.c`; fails without the variable).
+Not done: the X server keeps the dead manager's other resources (cursor, colormap, hidden helper windows) until the
+session ends.
