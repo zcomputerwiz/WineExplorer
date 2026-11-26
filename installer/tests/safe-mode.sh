@@ -151,7 +151,7 @@
 #   WEX_TEST_SAFE_BOX=required    a Safe Mode logon must show the message box (work order C2); by default (optional)
 #                                 the box is answered when it appears, for images whose Explorer has none
 #   WEX_TEST_USER                 the account that logs on (default wineuser); it also logs on on the serial console
-#   WEX_TEST_PASSWORD_FILE        its password (default: empty)
+#   WEX_TEST_PASSWORD_FILE        its password (default: generated at provisioning, written to $OUT/password; blank passwords log on at the greeter only)
 #   WEX_TEST_TILE                 its name on the Welcome screen (default: WEX_TEST_USER), clicked; Enter (the first
 #                                 tile) when OCR cannot find it
 #   WEX_SAFEMODE_BASELINE         one provisioning for many tests (installer/tests/run-chain.sh, review 2026-11-23):
@@ -2361,8 +2361,15 @@ qemu-img create -q -f qcow2 -b "$SRC_DISK" -F qcow2 "$STATE/disk.qcow2" || die "
 if [ -n "${WEX_TEST_PASSWORD_FILE:-}" ]; then
     PWFILE=$WEX_TEST_PASSWORD_FILE
 else
+    # a generated password (blank passwords log on at the greeter only, docs/BLANK_PASSWORDS.md: the serial login and
+    # sudo -S need a real one); the baseline's provisioning set it, a fresh provisioning generates it
     PWFILE=$OUT/password
-    : > "$PWFILE"
+    if [ "$BASELINE" = use ] && [ -s "$VMTEST_DIR/$SOURCE/safe-mode/password" ]; then
+        cp "$VMTEST_DIR/$SOURCE/safe-mode/password" "$PWFILE" || die "cannot copy the baseline's password"
+    else
+        head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$PWFILE"
+        WEX_SET_USER_PASSWORD=1
+    fi
 fi
 ADMIN_PWFILE=$OUT/admin-password
 
@@ -2424,6 +2431,9 @@ fi
 # a random password for the Administrator account (work order C4), for this overlay only
 head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$ADMIN_PWFILE"
 install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "cannot copy the Administrator password"
+if [ -n "${WEX_SET_USER_PASSWORD:-}" ]; then
+    install -m 600 "$PWFILE" "$MNT/root/wex-test-user-password" || die "cannot copy the test user's password"
+fi
 {
     echo '#!/bin/sh'
     echo '# installer/tests/safe-mode.sh: runs once, removes itself and powers off'
@@ -2435,6 +2445,12 @@ if getent passwd administrator >/dev/null; then
     printf 'administrator:%s\n' "$(cat /root/wex-test-admin-password)" | chpasswd; echo "adminpw=$?"
 fi
 rm -f /root/wex-test-admin-password
+# the test user gets a real password: without nullok (blank passwords log on at the greeter only) the serial login and
+# sudo -S cannot use an empty one. wexhidden stays blank, for the greeter-only checks.
+if [ -f /root/wex-test-user-password ]; then
+    printf '%s:%s\n' "__WEX_TEST_USER__" "$(cat /root/wex-test-user-password)" | chpasswd; echo "userpw=$?"
+    rm -f /root/wex-test-user-password
+fi
 if ! getent passwd wexhidden >/dev/null; then
     useradd --create-home --comment 'Hidden Test' wexhidden && passwd -d wexhidden >/dev/null
 fi
@@ -2470,6 +2486,7 @@ sync
 systemctl --no-block poweroff
 EOF
 } > "$MNT/root/wex-test-provision.sh"
+sed -i "s/__WEX_TEST_USER__/$USER_NAME/" "$MNT/root/wex-test-provision.sh"
 chmod 755 "$MNT/root/wex-test-provision.sh"
 printf '%s\n' '[Unit]' 'Description=Safe Mode test provisioning (installer/tests/safe-mode.sh)' 'After=local-fs.target' \
     'Before=display-manager.service' '' '[Service]' 'Type=oneshot' 'ExecStart=/root/wex-test-provision.sh' \
