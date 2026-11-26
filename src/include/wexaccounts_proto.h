@@ -16,7 +16,9 @@
  * The two lists come in pages: a page holds what fits in one frame (it stops before a record that does not), `first` is
  * the start index asked for (0 when there is none), `total` the number of entries; ask again with start = first + count
  * until that reaches total. A page may hold fewer than the frame could, never a partial record.
- *   WEXA_CREATE_USER    (name, full name, u32 type, hash)-> record
+ *   WEXA_CREATE_USER    (name, full name, u32 type, hash[, u32 locked]) -> record
+ *                       hash: a crypt(3) $6$ hash, or the empty string for a blank password (docs/BLANK_PASSWORDS.md);
+ *                       locked: 1 makes the account disabled in the same operation (absent: enabled)
  *   WEXA_DELETE_USER    (name)                           -> ()
  *   WEXA_RENAME_USER    (name, new name)                 -> ()
  *   WEXA_SET_FULLNAME   (name, full name)                -> ()
@@ -59,7 +61,8 @@ enum wexa_status
     WEXA_UNAVAILABLE, WEXA_LAST_ADMIN, WEXA_BAD_REQUEST,
     /* made by the Windows-side service, never by the helper: the change was made, and the account map had not shown it
      * after the wait (about 10 s). The client treats it as success with a warning. */
-    WEXA_SYNC_PENDING
+    WEXA_SYNC_PENDING,
+    WEXA_BLANK_REFUSED   /* a blank password is refused on this machine: PAM still accepts empty passwords outside the greeter */
 };
 
 struct wexa_request

@@ -103,8 +103,18 @@ class User(dbus.service.Object):
 
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='b')
     def SetLocked(self, v):
+        injected('SetLocked')
         log(op='SetLocked', user=self.name, value=bool(v))
-        self.u()['locked'] = bool(v)
+        u = self.u()
+        if v:
+            # usermod -L -e 1: an empty field becomes "!", so the account is no longer blank
+            u['wasblank'] = u.get('blank', False)
+            u['blank'] = False
+        elif u.get('wasblank'):
+            # usermod -U would leave "!" empty: shadow refuses, and AccountsService (seen on the real machine, Debian 13)
+            # still returns success: the account stays locked
+            return
+        u['locked'] = bool(v)
 
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='s')
     def SetUserName(self, name):
@@ -118,6 +128,16 @@ class User(dbus.service.Object):
     def SetPassword(self, password, hint):
         injected('SetPassword')
         log(op='SetPassword', user=self.name, value=str(password))
+        self.u()['blank'] = False
+        self.u()['wasblank'] = False
+
+    @dbus.service.method('org.freedesktop.Accounts.User', in_signature='i')
+    def SetPasswordMode(self, mode):
+        """2 is none: passwd -d. Nothing here touches the group nopasswdlogin: on Debian AccountsService does not."""
+        injected('SetPasswordMode')
+        log(op='SetPasswordMode', user=self.name, value=int(mode))
+        self.u()['blank'] = int(mode) == 2
+        self.u()['wasblank'] = False   # passwd -d: the field is empty, no "!" left
 
 
 objects = {}
@@ -178,6 +198,20 @@ class Login(dbus.service.Object):
         raise dbus.exceptions.DBusException('no user', name='org.freedesktop.login1.NoSuchUser')
 
 
+def reconcile(groupfile):
+    """what installer/blank/wex-accounts-blank-reconcile does: the members of nopasswdlogin are the users whose field is empty"""
+    members = sorted(n for n, u in users.items() if u.get('blank'))
+    lines = []
+    try:
+        with open(groupfile) as f:
+            lines = [l.rstrip('\n') for l in f if l.strip() and not l.startswith('nopasswdlogin:')]
+    except OSError:
+        pass
+    lines.append('nopasswdlogin:x:1234:' + ','.join(members))
+    with open(groupfile, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
 class Systemd(dbus.service.Object):
     def __init__(self):
         dbus.service.Object.__init__(self, bus, '/org/freedesktop/systemd1')
@@ -189,6 +223,9 @@ class Systemd(dbus.service.Object):
     @dbus.service.method('org.freedesktop.systemd1.Manager', in_signature='ss', out_signature='o')
     def StartUnit(self, name, mode):
         log(op='StartUnit', unit=str(name), mode=str(mode))
+        if str(name) == 'wex-accounts-blank.service' and os.environ.get('FAKE_GROUPFILE') and \
+                not os.path.exists(logfile + '.noreconcile'):
+            reconcile(os.environ['FAKE_GROUPFILE'])
         return dbus.ObjectPath('/org/freedesktop/systemd1/job/1')
 
 

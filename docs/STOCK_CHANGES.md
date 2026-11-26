@@ -5096,6 +5096,10 @@ token).
 
 ## netapi32: Local Users and Groups through the accounts service (2026-11-25)
 
+Addition (Wine `claude/gpo-blankpw`, 2026-11-25): a NULL or empty password in `NetUserAdd` and `NetUserSetInfo` 1003 is a blank
+password and goes on the wire as the empty string (docs/BLANK_PASSWORDS.md; it was refused with `NERR_PasswordTooShort`), and
+`NetUserAdd` asks for a disabled account in the create request itself (a trailing `u32`).
+
 `dlls/netapi32` (Wine `claude/gpo-lusrmgr`): on a machine that has a session 0, the local-computer calls of `NetUserEnum`,
 `NetUserGetInfo`, `NetUserAdd`, `NetUserDel`, `NetUserGetLocalGroups`, `NetUserChangePassword` and all `NetLocalGroup*` are
 answered by the accounts service over `\\.\pipe\WexSession0\accounts` (new `wexaccounts.c`, `wexaccounts.h`; the hooks are
