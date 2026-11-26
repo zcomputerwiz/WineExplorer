@@ -16,3 +16,4 @@ kbd-msg-probe | 30 |                                          | posted key messa
 loop-probe | 40 | | CoreMessaging worker round alone: 2582, SetTimer 0 and max, Drain2, MsgWait; does it sustain itself
 richedit-probe | 60 | | the package RichEdit (RichEditD2DPT) driven with the messages Notepad sends: Windows against Wine environment
 dwrite-families-probe | 60 | | which common Windows font families DirectWrite finds in the system collection and through GDI interop
+inputsite-factory-probe | 60 | | the input-site classes of the Windows App SDK input thread: registration, factory interfaces, ActivateInstance (no such classes under Wine yet)

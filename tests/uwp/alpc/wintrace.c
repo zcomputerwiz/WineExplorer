@@ -29,7 +29,11 @@
  * For the last six, only calls on an object with that vtable are counted (the slots may share code with other objects).
  * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return), _K (the fifth to eighth arguments, from the stack) or _F (the low float and double of
  * xmm0 to xmm3) or _Q (the 4 qwords that rdx, r8 and r9 point to, at entry and, with R, at return: a call's out arguments);
- * the fifth field R logs the return value and what the argument registers point to.
+ * also _I (the objects passed in rdx, r8, r9 are traced like those of _O), _G (rdx points to a GUID), _T (rdx, r8, r9 where they look like WinRT strings), _K (the fifth to eighth arguments) and
+ * _O (with R: when the call succeeds, each object it handed out through a pointer argument is traced too, slot by slot, if its vtable
+ * lies in a module of WINTRACE_FOLLOW, default InputHost.dll; such interfaces are logged as v0, v1, ...);
+ * the fifth field R logs the return value and what the argument registers point to. With WINTRACE_SKIP_MISSING set, a target that
+ * cannot be found is skipped (a range of slots that may run past the end of an interface).
  * A program that starts a second process (WINTRACE_WATCH) gets its breakpoints there; those of the first process are taken out.
  * A return breakpoint that another thread reaches first is stepped over and kept for the thread it belongs to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
@@ -44,15 +48,15 @@
 #include <stdlib.h>
 
 struct bp { char mod[80]; DWORD rva; char label[64]; int hits, max; BYTE orig; ULONG_PTR addr; int active, wantret;
-            DWORD vt_rva; ULONG_PTR base; };   /* vt_rva: count only the calls whose object (rcx) has the vtable at module base + vt_rva */
+            DWORD vt_rva; ULONG_PTR base; ULONG_PTR vt_abs; };   /* vt_abs: the same filter for a vtable found in the application (_O) */   /* vt_rva: count only the calls whose object (rcx) has the vtable at module base + vt_rva */
 /* a one-shot breakpoint at the return address of a hit (option R): logs rax and what the four argument registers point to */
-struct ret { ULONG_PTR addr; DWORD tid; int bp, used, n; BYTE orig; ULONG_PTR args[4]; };
+struct ret { ULONG_PTR addr; DWORD tid; int bp, used, n; BYTE orig; ULONG_PTR args[4], stack_args[4]; };
 static struct ret rets[64];
 static void dump_mem(const char *tag, ULONG_PTR p);
 struct module { ULONG_PTR base; DWORD size; char name[128]; };
 
-static struct bp bps[128];
-static int nbps;
+static struct bp bps[1024];
+static int nbps, nstatic;   /* nstatic: the targets of the command line; the rest were added by _O */
 static struct module mods[1024];
 static int nmods;
 static HANDLE oldproc;   /* the previous debuggee, after a second process attached */
@@ -93,6 +97,14 @@ static const char *resolve(ULONG_PTR a, char *buf, size_t n)
             return buf;
         }
     return NULL;
+}
+
+/* memory of a module (code, tables): never dumped, whatever register points there */
+static int in_image(ULONG_PTR a)
+{
+    char buf[200];
+
+    return resolve(a, buf, sizeof(buf)) != NULL;
 }
 
 static void add_module(HANDLE file, LPVOID base)
@@ -144,6 +156,8 @@ static void restore(struct bp *b, BYTE value)
     FlushInstructionCache(proc, (void *)b->addr, 1);
 }
 
+static void follow(const char *from, int n, int argi, ULONG_PTR obj);
+
 static void hit(struct bp *b, DWORD tid)
 {
     CONTEXT ctx;
@@ -157,12 +171,30 @@ static void hit(struct bp *b, DWORD tid)
     memset(&ctx, 0, sizeof(ctx));
     ctx.ContextFlags = CONTEXT_FULL;
     GetThreadContext(th, &ctx);
-    if (b->vt_rva)
+    if (b->vt_rva || b->vt_abs)
     {
         ULONG_PTR vt = 0;
 
         /* not the object of interest: let it run without a count (the breakpoint is stepped over as usual) */
-        if (!ReadProcessMemory(proc, (void *)ctx.Rcx, &vt, sizeof(vt), &got) || vt != b->base + b->vt_rva)
+        if (!ReadProcessMemory(proc, (void *)ctx.Rcx, &vt, sizeof(vt), &got) || vt != (b->vt_abs ? b->vt_abs : b->base + b->vt_rva))
+        {
+            restore(b, b->orig);
+            ctx.Rip = b->addr;
+            ctx.EFlags |= 0x100;
+            SetThreadContext(th, &ctx);
+            CloseHandle(th);
+            pending[tid & 0xffff] = (int)(b - bps) + 1;
+            return;
+        }
+    }
+    if (strstr(b->label, "_O"))
+    {
+        /* only calls that come from another module: what a component does on its own objects is not looked at */
+        ULONG_PTR ra = 0;
+        char caller[200];
+
+        if (ReadProcessMemory(proc, (void *)ctx.Rsp, &ra, sizeof(ra), &got) && resolve(ra, caller, sizeof(caller))
+                && !_stricmp(caller, b->mod))
         {
             restore(b, b->orig);
             ctx.Rip = b->addr;
@@ -178,6 +210,16 @@ static void hit(struct bp *b, DWORD tid)
     {
         log_line("HIT %s #%d tid %lu rcx %#llx rdx %#llx r8 %#llx r9 %#llx", b->label, b->hits, (unsigned long)tid,
                  (unsigned long long)ctx.Rcx, (unsigned long long)ctx.Rdx, (unsigned long long)ctx.R8, (unsigned long long)ctx.R9);
+        if (strstr(b->label, "_I"))   /* _I: the objects passed in rdx, r8, r9 are traced like those of _O */
+        {
+            char from[64];
+            int n = b->hits;
+
+            snprintf(from, sizeof(from), "%s", b->label);
+            follow(from, n, 1, ctx.Rdx);
+            follow(from, n, 2, ctx.R8);
+            follow(from, n, 3, ctx.R9);
+        }
         if (strstr(b->label, "_K"))   /* _K: the fifth to eighth arguments (the four qwords after the shadow space at entry) */
         {
             ULONG_PTR sa[4] = {0};
@@ -227,6 +269,37 @@ static void hit(struct bp *b, DWORD tid)
                     log_line("    string \"%ls\"", text);
             }
         }
+        if (strstr(b->label, "_G"))   /* _G: rdx points to a GUID (the interface id of a QueryInterface) */
+        {
+            GUID g;
+            SIZE_T n = 0;
+
+            if (ctx.Rdx > 0x10000 && ReadProcessMemory(proc, (void *)ctx.Rdx, &g, sizeof(g), &n) && n == sizeof(g))
+                log_line("    rdx {%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}", (unsigned long)g.Data1, g.Data2, g.Data3,
+                         g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
+        }
+        if (strstr(b->label, "_T"))   /* _T: rdx, r8 and r9 where they look like WinRT strings (header with a small length and readable text) */
+        {
+            ULONG_PTR regs[3] = {ctx.Rdx, ctx.R8, ctx.R9};
+            static const char *names[3] = {"rdx", "r8", "r9"};
+            int r;
+
+            for (r = 0; r < 3; r++)
+            {
+                struct { UINT32 flags, length, pad1, pad2; ULONG_PTR buffer; } hdr;
+                WCHAR text[160];
+                SIZE_T n = 0;
+                UINT32 k;
+                int ok = 1;
+
+                if (regs[r] < 0x10000 || !ReadProcessMemory(proc, (void *)regs[r], &hdr, sizeof(hdr), &n) || n != sizeof(hdr)) continue;
+                if (hdr.flags > 1 || !hdr.length || hdr.length >= ARRAYSIZE(text) - 1 || hdr.buffer < 0x10000) continue;
+                if (!ReadProcessMemory(proc, (void *)hdr.buffer, text, (hdr.length + 1) * sizeof(WCHAR), &n)) continue;
+                if (text[hdr.length]) continue;
+                for (k = 0; k < hdr.length && ok; k++) ok = text[k] >= 32 && text[k] < 0xd800;
+                if (ok) log_line("    %s may be the string \"%ls\"", names[r], text);
+            }
+        }
         if (strstr(b->label, "_S"))   /* _S: rdx, r8 and r9 as C strings where they point to printable text */
         {
             ULONG_PTR regs[3] = {ctx.Rdx, ctx.R8, ctx.R9};
@@ -270,7 +343,7 @@ static void hit(struct bp *b, DWORD tid)
             {
                 ULONG_PTR q[4] = {0};
                 SIZE_T n = 0;
-                if (regs[i] < 0x10000 || !ReadProcessMemory(proc, (void *)regs[i], q, sizeof(q), &n)) continue;
+                if (regs[i] < 0x10000 || in_image(regs[i]) || !ReadProcessMemory(proc, (void *)regs[i], q, sizeof(q), &n)) continue;
                 log_line("    in a%d %016llx %016llx %016llx %016llx", i + 1, (unsigned long long)q[0], (unsigned long long)q[1],
                          (unsigned long long)q[2], (unsigned long long)q[3]);
             }
@@ -297,6 +370,8 @@ static void hit(struct bp *b, DWORD tid)
 
                 rets[k].used = 1; rets[k].addr = ra; rets[k].tid = tid; rets[k].bp = (int)(b - bps); rets[k].n = b->hits;
                 rets[k].args[0] = ctx.Rcx; rets[k].args[1] = ctx.Rdx; rets[k].args[2] = ctx.R8; rets[k].args[3] = ctx.R9;
+                memset(rets[k].stack_args, 0, sizeof(rets[k].stack_args));
+                ReadProcessMemory(proc, (void *)(ctx.Rsp + 0x28), rets[k].stack_args, sizeof(rets[k].stack_args), &got);
                 {
                     /* another thread may wait at the same return address: its saved byte is the original */
                     int j, shared = 0;
@@ -329,6 +404,81 @@ static void dump_mem(const char *tag, ULONG_PTR p)
                  (unsigned long long)q[i + 2], (unsigned long long)q[i + 3]);
 }
 
+static int is_code(ULONG_PTR a)
+{
+    MEMORY_BASIC_INFORMATION mbi;
+
+    if (!VirtualQueryEx(proc, (void *)a, &mbi, sizeof(mbi))) return 0;
+    return mbi.State == MEM_COMMIT && mbi.Type == MEM_IMAGE
+           && (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+}
+
+/* _O: an object that a traced call handed out. Its interface is traced too: a breakpoint at each slot of its vtable (not AddRef and
+ * Release), counted only for objects of that vtable; the slots end where a pointer no longer leads to code of a module. Only vtables
+ * in the modules of WINTRACE_FOLLOW (default InputHost.dll) are followed. Logged by number and module, not by address. */
+static ULONG_PTR followed[256];
+static int nfollowed;
+
+static void follow(const char *from, int n, int argi, ULONG_PTR obj)
+{
+    const char *list = getenv("WINTRACE_FOLLOW");
+    ULONG_PTR vt = 0, slot;
+    char mod[200], smod[200];
+    SIZE_T got;
+    int i, count, id;
+
+    if (obj < 0x10000 || !ReadProcessMemory(proc, (void *)obj, &vt, sizeof(vt), &got) || got != sizeof(vt)) return;
+    if (!resolve(vt, mod, sizeof(mod)) || is_code(vt)) return;
+    if (!list) list = "InputHost.dll";
+    {
+        char lower_list[400], lower_mod[220];
+        snprintf(lower_list, sizeof(lower_list), ",%s,", list);
+        snprintf(lower_mod, sizeof(lower_mod), ",%s,", mod);
+        _strlwr(lower_list);
+        _strlwr(lower_mod);
+        if (!strstr(lower_list, lower_mod)) return;
+    }
+    for (i = 0; i < nfollowed; i++) if (followed[i] == vt) return;
+    for (count = 0; count < 64; count++)
+    {
+        if (!ReadProcessMemory(proc, (void *)(vt + count * sizeof(slot)), &slot, sizeof(slot), &got) || got != sizeof(slot)) break;
+        if (!is_code(slot) || !resolve(slot, smod, sizeof(smod))) break;
+    }
+    if (count < 6 || nfollowed >= 256) return;
+    id = nfollowed;
+    followed[nfollowed++] = vt;
+    log_line("FOLLOW v%d: an object from %s #%d arg%d, vtable in %s, at most %d slots", id, from, n, argi, mod, count);
+    for (i = 0; i < count && nbps < (int)ARRAYSIZE(bps); i++)
+    {
+        struct bp *b = &bps[nbps];
+        BYTE cc = 0xcc;
+        int k, shared = 0;
+
+        if (i == 1 || i == 2) continue;
+        ReadProcessMemory(proc, (void *)(vt + i * sizeof(slot)), &slot, sizeof(slot), &got);
+        memset(b, 0, sizeof(*b));
+        resolve(slot, b->mod, sizeof(b->mod));
+        for (k = 0; k < nmods; k++) if (slot >= mods[k].base && slot < mods[k].base + mods[k].size) b->base = mods[k].base;
+        b->rva = (DWORD)(slot - b->base);
+        b->addr = slot;
+        b->vt_abs = vt;
+        b->wantret = 1;
+        b->max = i ? 12 : 40;
+        snprintf(b->label, sizeof(b->label), i ? "v%d[%d]_O_Q_K_T" : "v%d[%d]_O_G", id, i);
+        /* several vtables may share a function: the byte under the first breakpoint is the original one */
+        for (k = 0; k < nbps; k++)
+            if (bps[k].active && bps[k].addr == slot) { b->orig = bps[k].orig; shared = 1; break; }
+        if (!shared && !ReadProcessMemory(proc, (void *)slot, &b->orig, 1, &got)) continue;
+        if (!shared)
+        {
+            if (!WriteProcessMemory(proc, (void *)slot, &cc, 1, &got)) continue;
+            FlushInstructionCache(proc, (void *)slot, 1);
+        }
+        b->active = 1;
+        nbps++;
+    }
+}
+
 /* the return of a traced call: rax, and for each argument that is a readable pointer the value it points to and, if that is an object,
  * the module and offset of its vtable */
 static int ret_hit(ULONG_PTR a, DWORD tid)
@@ -352,7 +502,7 @@ static int ret_hit(ULONG_PTR a, DWORD tid)
         {
             ULONG_PTR p = rets[k].args[i], v = 0, vt = 0;
 
-            if (p < 0x10000 || !ReadProcessMemory(proc, (void *)p, &v, sizeof(v), &got) || got != sizeof(v)) continue;
+            if (p < 0x10000 || in_image(p) || !ReadProcessMemory(proc, (void *)p, &v, sizeof(v), &got) || got != sizeof(v)) continue;
             if (v > 0x10000 && ReadProcessMemory(proc, (void *)v, &vt, sizeof(vt), &got) && got == sizeof(vt) && resolve(vt, buf, sizeof(buf)))
                 log_line("    arg%d %#llx -> %#llx, an object with vtable %s", i, (unsigned long long)p, (unsigned long long)v, buf);
             else
@@ -363,7 +513,8 @@ static int ret_hit(ULONG_PTR a, DWORD tid)
             {
                 ULONG_PTR q[4] = {0};
                 SIZE_T n = 0;
-                if (rets[k].args[i] < 0x10000 || !ReadProcessMemory(proc, (void *)rets[k].args[i], q, sizeof(q), &n)) continue;
+                if (rets[k].args[i] < 0x10000 || in_image(rets[k].args[i])
+                        || !ReadProcessMemory(proc, (void *)rets[k].args[i], q, sizeof(q), &n)) continue;
                 log_line("    out a%d %016llx %016llx %016llx %016llx", i, (unsigned long long)q[0], (unsigned long long)q[1],
                          (unsigned long long)q[2], (unsigned long long)q[3]);
             }
@@ -371,6 +522,33 @@ static int ret_hit(ULONG_PTR a, DWORD tid)
         {
             dump_mem("rdx out", rets[k].args[1]);
             dump_mem("r8 out", rets[k].args[2]);
+        }
+        if (strstr(bps[rets[k].bp].label, "_K"))   /* the fifth to eighth arguments again: what they point to now */
+            for (i = 0; i < 4; i++)
+            {
+                ULONG_PTR p = rets[k].stack_args[i], v = 0, vt = 0;
+
+                if (p < 0x10000 || in_image(p) || !ReadProcessMemory(proc, (void *)p, &v, sizeof(v), &got) || got != sizeof(v)) continue;
+                if (v > 0x10000 && ReadProcessMemory(proc, (void *)v, &vt, sizeof(vt), &got) && got == sizeof(vt) && resolve(vt, buf, sizeof(buf)))
+                    log_line("    arg%d %#llx -> %#llx, an object with vtable %s", i + 4, (unsigned long long)p, (unsigned long long)v, buf);
+                else
+                    log_line("    arg%d %#llx -> %#llx", i + 4, (unsigned long long)p, (unsigned long long)v);
+            }
+        if (strstr(bps[rets[k].bp].label, "_O") && !(ctx.Rax & 0x80000000))
+        {
+            char from[64];
+            int n = rets[k].n;
+
+            /* follow() adds breakpoints: the label is copied first */
+            snprintf(from, sizeof(from), "%s", bps[rets[k].bp].label);
+            for (i = 1; i < 8; i++)
+            {
+                ULONG_PTR p = i < 4 ? rets[k].args[i] : rets[k].stack_args[i - 4], v = 0;
+
+                if (i >= 4 && !strstr(from, "_K")) break;
+                if (p < 0x10000 || in_image(p) || !ReadProcessMemory(proc, (void *)p, &v, sizeof(v), &got) || got != sizeof(v)) continue;
+                follow(from, n, i, v);
+            }
         }
         rets[k].used = 0;
         {
@@ -472,7 +650,23 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         ro_init(1);   /* RO_INIT_MULTITHREADED */
         if (FAILED(ws_create(cls, (UINT32)wcslen(cls), &hs))) return 0;
         if (FAILED(ro_factory(hs, &iid, &obj)) || !obj) return 0;
-        return rva_of((*(void ***)obj)[slot], mod, modsize, rva);
+        {
+            /* every slot up to N must lead to code (N may lie past the end of the interface), and only calls on an object of this
+             * vtable are counted (the slots may share code with other objects) */
+            MEMORY_BASIC_INFORMATION mbi;
+            void **vt = *(void ***)obj;
+            char vmod[80];
+            DWORD vrva;
+            int k;
+
+            for (k = 0; k <= slot; k++)
+                if (!VirtualQuery(vt[k], &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT || mbi.Type != MEM_IMAGE
+                        || !(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+                    return 0;
+            if (!rva_of(vt[slot], mod, modsize, rva)) return 0;
+            if (rva_of(vt, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, mod)) resolved_vt_rva = vrva;
+            return 1;
+        }
     }
 
     /* d3d11.dll!device@{IID}[N]: slot N of the interface IID of a hardware device with BGRA support that this program creates */
@@ -721,7 +915,7 @@ int main(int argc, char **argv)
     out = fopen(argv[3], "w");
     if (!out) return 2;
     limit = (DWORD)atoi(argv[2]) * 1000;
-    for (i = 4; i < (DWORD)argc && nbps < 128; i++)
+    for (i = 4; i < (DWORD)argc && nbps < 128; i++)   /* the rest of the table is for the interfaces that _O finds */
     {
         char *a = strtok(argv[i], ":"), *l = strtok(NULL, ":"), *m = strtok(NULL, ":"), *w = strtok(NULL, ":");
 
@@ -732,6 +926,7 @@ int main(int argc, char **argv)
         {
             fprintf(stderr, "target %s: not an entry point that can be found at run time (a raw RVA is not accepted)\n", a);
             fprintf(out, "target %s: not found\n", a);
+            if (getenv("WINTRACE_SKIP_MISSING")) continue;   /* a range of slots that may run past the end of an interface */
             return 2;
         }
         bps[nbps].vt_rva = resolved_vt_rva;
@@ -741,6 +936,7 @@ int main(int argc, char **argv)
         bps[nbps].max = m ? atoi(m) : 30;
         nbps++;
     }
+    nstatic = nbps;
     if (!strncmp(argv[1], "exe:", 4))
     {
         /* an unpackaged program: started suspended, attached, then resumed */
@@ -809,6 +1005,8 @@ int main(int argc, char **argv)
             }
             curpid = ev.dwProcessId;
             nmods = 0;
+            nbps = nstatic;   /* the interfaces found in the previous process are gone */
+            nfollowed = 0;
             for (k = 0; k < nbps; k++) bps[k].active = 0;
             log_line("process %lu attached", (unsigned long)ev.dwProcessId);
             proc = ev.u.CreateProcessInfo.hProcess;
@@ -897,8 +1095,35 @@ int main(int argc, char **argv)
                         }
                         found = 1;
                     }
-                for (k = 0; k < nbps && !found; k++)
-                    if (bps[k].active && bps[k].addr == a) { hit(&bps[k], ev.dwThreadId); found = 1; break; }
+                if (!found)
+                {
+                    /* several breakpoints may share an address (_O): the one whose vtable the object has, else any (it passes) */
+                    struct bp *cand = NULL;
+                    ULONG_PTR rcx = 0, vt = 0;
+                    HANDLE th = OpenThread(THREAD_GET_CONTEXT, FALSE, ev.dwThreadId);
+                    SIZE_T got;
+
+                    if (th)
+                    {
+                        CONTEXT ctx;
+                        memset(&ctx, 0, sizeof(ctx));
+                        ctx.ContextFlags = CONTEXT_FULL;
+                        if (GetThreadContext(th, &ctx)) rcx = ctx.Rcx;
+                        CloseHandle(th);
+                    }
+                    if (rcx > 0x10000) ReadProcessMemory(proc, (void *)rcx, &vt, sizeof(vt), &got);
+                    for (k = 0; k < nbps; k++)
+                    {
+                        if (!bps[k].active || bps[k].addr != a) continue;
+                        if (!cand) cand = &bps[k];
+                        if (bps[k].vt_abs ? vt == bps[k].vt_abs : bps[k].vt_rva ? vt == bps[k].base + bps[k].vt_rva : 1)
+                        {
+                            cand = &bps[k];
+                            break;
+                        }
+                    }
+                    if (cand) { hit(cand, ev.dwThreadId); found = 1; }
+                }
             }
             else if (code == EXCEPTION_SINGLE_STEP && pending[ev.dwThreadId & 0xffff])
             {
