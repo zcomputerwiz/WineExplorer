@@ -151,6 +151,17 @@ way.
    screen's session list follows the account clicked (below), so it no longer shows X11 for a Wayland account.
 5. Done on 2026-11-12: the shell-only protocols are offered on the private socket only (wexcomp `1f8e5d3a`, above).
 6. The 150% scaling items, multi-output frame clock and Mica, CS_DROPSHADOW.
+   - **Restored live scaling at 150%: reproduced headless on 2026-11-26** (`scripts/wexbuild-root/wayland-scale-cycle.sh`:
+     headless wexcomp with server-side decoration, `explorer /shell` with `WEX_WAYLAND_NATIVE_WINDOWS=1`, a real restored
+     `foot` hosted in a Wine frame, 100% -> 150% -> 100% by `wlr-randr --scale`, the window found in a `grim` screenshot by
+     its background colour; needs the `foot` package). It fails in every run, with a different wrong state each time, all
+     steady for 12 s (not transient). Foot at 100%: (520,313)-(759,481). Seen after a scale change: at 150% the window
+     at (780,470), 1.5 times its place (the compositor kept the logical position; stays 395x245), or at (521,314) (the
+     physical place kept); and back at 100%: (780,470) (not restored), (347,209)-(490,312) (moved and shrunk by 1/1.5),
+     or correctly (520,313). The 1.5 and 1/1.5 factors point at a scale conversion applied to the hosted group's
+     position or size in the wrong direction, or twice, when the output scale changes. Root cause not found yet; the
+     trace the earlier notes ask for (scale, configure serial, requested and committed native size, frame and client
+     geometry, transaction end or timeout) is the next step (`docs/wayland-polish/item3-notes.md`).
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
