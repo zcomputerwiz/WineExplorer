@@ -11,6 +11,7 @@
  *   none   only IUnknown, IInspectable, IAgileObject
  *   all    every interface id (each gets its own logging stub; methods return E_NOTIMPL)
  *   IID... the listed interface ids (braces included), besides the three above
+ *   sink0, sinkbad   as sink, but the handle handed out is NULL or an event
  *   sink   as all, and the two questions the system was seen asking get an answer: slot 9 of {92179cc0-...} gives a
  *          composition input sink that this program makes for a window of its own (NtCreateCompositionInputSink, block as in
  *          sink-probe2.c), slot 9 of {01dc794b-...} gives the host object itself
@@ -160,7 +161,15 @@ static HRESULT method_called(struct stub *stub, int slot, void *a1, void *a2, vo
 }
 
 #define M(n) static HRESULT WINAPI stub_method_##n(struct stub *stub, void *a1, void *a2, void *a3) { return method_called(stub, n, a1, a2, a3); }
-M(6) M(7) M(8) M(9) M(10) M(11) M(12) M(13) M(14) M(15) M(16) M(17) M(18) M(19) M(20) M(21) M(22) M(23) M(24) M(25) M(26) M(27) M(28) M(29)
+#ifdef __i386__
+/* 32-bit: the method must remove exactly its own arguments. Slot 9 is the one the system calls; one argument (an out
+ * pointer) is what the 64-bit calls show. The other stubs are not right for any call there. */
+static HRESULT WINAPI stub_method_9(struct stub *stub, void *a1) { return method_called(stub, 9, a1, NULL, NULL); }
+#define M9
+#else
+#define M9 M(9)
+#endif
+M(6) M(7) M(8) M9 M(10) M(11) M(12) M(13) M(14) M(15) M(16) M(17) M(18) M(19) M(20) M(21) M(22) M(23) M(24) M(25) M(26) M(27) M(28) M(29)
 M(30) M(31) M(32) M(33) M(34) M(35) M(36) M(37) M(38) M(39) M(40) M(41) M(42) M(43) M(44) M(45) M(46) M(47) M(48) M(49) M(50) M(51) M(52)
 M(53) M(54) M(55) M(56) M(57) M(58) M(59) M(60) M(61) M(62) M(63)
 #undef M
@@ -248,8 +257,45 @@ static HRESULT factory_of(HSTRING class_name, const GUID *iid, void **out)
     return hr;
 }
 
-typedef HRESULT (WINAPI *create_t)(void *factory, void *arg, void **out);
-typedef HRESULT (WINAPI *set_t)(void *obj, UINT_PTR value);
+/* On 32-bit Windows a method removes its own arguments from the stack. There the calls go through wrappers that say how
+ * many bytes were left on the stack (0 when the assumed number of arguments is right) and put the stack right again. */
+static int stack_left;
+
+#ifdef __i386__
+static HRESULT call3(void *fn, void *a0, void *a1, void *a2)
+{
+    HRESULT hr;
+    int left, d1, d2;
+
+    __asm__ __volatile__("movl %%esp, %%esi\n\tpushl %%edx\n\tpushl %%ecx\n\tpushl %%ebx\n\tcall *%%edi\n\t"
+                         "subl %%esp, %%esi\n\taddl %%esi, %%esp"
+                         : "=a"(hr), "=S"(left), "=c"(d1), "=d"(d2) : "D"(fn), "b"(a0), "c"(a1), "d"(a2) : "memory", "cc");
+    stack_left = left;
+    return hr;
+}
+
+static HRESULT call2(void *fn, void *a0, UINT_PTR a1)
+{
+    HRESULT hr;
+    int left, d1, d2;
+
+    __asm__ __volatile__("movl %%esp, %%esi\n\tpushl %%ecx\n\tpushl %%ebx\n\tcall *%%edi\n\t"
+                         "subl %%esp, %%esi\n\taddl %%esi, %%esp"
+                         : "=a"(hr), "=S"(left), "=c"(d1), "=d"(d2) : "D"(fn), "b"(a0), "c"(a1) : "memory", "cc");
+    stack_left = left;
+    return hr;
+}
+#else
+static HRESULT call3(void *fn, void *a0, void *a1, void *a2)
+{
+    return ((HRESULT (WINAPI *)(void *, void *, void *))fn)(a0, a1, a2);
+}
+
+static HRESULT call2(void *fn, void *a0, UINT_PTR a1)
+{
+    return ((HRESULT (WINAPI *)(void *, UINT_PTR))fn)(a0, a1);
+}
+#endif
 
 int wmain(int argc, WCHAR **argv)
 {
@@ -266,7 +312,7 @@ int wmain(int argc, WCHAR **argv)
     SetUnhandledExceptionFilter(crashed);
     init_stubs();
     if (argc > 1 && !wcscmp(argv[1], L"all")) answer_all = 1;
-    else if (argc > 1 && !wcscmp(argv[1], L"sink"))
+    else if (argc > 1 && !wcsncmp(argv[1], L"sink", 4))
     {
         LONG (NTAPI *create_sink)(const void *block, HANDLE *out);
         HMODULE win32u = LoadLibraryA("win32u.dll");
@@ -288,6 +334,16 @@ int wmain(int argc, WCHAR **argv)
         status = create_sink ? create_sink(block, &sink) : -1;
         printf("window %s, NtCreateCompositionInputSink: %s, status %08lx, sink %s\n", hwnd ? "created" : "FAILED",
                create_sink ? "exported" : "not exported by win32u.dll", (ULONG)status, sink ? "made" : "none");
+        if (!wcscmp(argv[1], L"sink0"))
+        {
+            sink = NULL;
+            printf("the host will hand out a NULL handle in place of the sink\n");
+        }
+        else if (!wcscmp(argv[1], L"sinkbad"))
+        {
+            sink = CreateEventW(NULL, FALSE, FALSE, NULL);
+            printf("the host will hand out an event handle in place of the sink\n");
+        }
     }
     else if (argc > 1 && wcscmp(argv[1], L"none"))
     {
@@ -337,8 +393,8 @@ int wmain(int argc, WCHAR **argv)
     if (FAILED(hr) || !site_factory) return 1;
 
     step = "InputSite factory slot 6 (host, out)";
-    hr = ((create_t)(*(void ***)site_factory)[6])(site_factory, &stubs[0], (void **)&site);
-    printf("InputSite factory slot 6 (host, out): %08lx, site %s\n", hr, site ? "returned" : "NULL");
+    hr = call3((*(void ***)site_factory)[6], site_factory, &stubs[0], &site);
+    printf("InputSite factory slot 6 (host, out): %08lx, site %s, %d bytes left on the stack\n", hr, site ? "returned" : "NULL", stack_left);
     if (SUCCEEDED(hr) && site)
     {
         step = "inspect site";
@@ -365,19 +421,41 @@ int wmain(int argc, WCHAR **argv)
         if (SUCCEEDED(hr) && acio_factory && site_default)
         {
             step = "ActivationConfigurationInputObject factory slot 6 (site, out)";
-            hr = ((create_t)(*(void ***)acio_factory)[6])(acio_factory, site_default, (void **)&acio);
-            printf("ActivationConfigurationInputObject factory slot 6 (site, out): %08lx, object %s\n", hr, acio ? "returned" : "NULL");
+            hr = call3((*(void ***)acio_factory)[6], acio_factory, site_default, &acio);
+            printf("ActivationConfigurationInputObject factory slot 6 (site, out): %08lx, object %s, %d bytes left on the stack\n",
+                   hr, acio ? "returned" : "NULL", stack_left);
         }
         if (acio)
         {
             step = "inspect configuration object";
             inspect("configuration object", acio);
             step = "configuration object slot 7 (0)";
-            hr = ((set_t)(*(void ***)acio)[7])(acio, 0);
-            printf("  configuration object slot 7 (0): %08lx\n", hr);
+            hr = call2((*(void ***)acio)[7], acio, 0);
+            printf("  configuration object slot 7 (0): %08lx, %d bytes left on the stack\n", hr, stack_left);
             step = "configuration object slot 9 (0)";
-            hr = ((set_t)(*(void ***)acio)[9])(acio, 0);
-            printf("  configuration object slot 9 (0): %08lx\n", hr);
+            hr = call2((*(void ***)acio)[9], acio, 0);
+            printf("  configuration object slot 9 (0): %08lx, %d bytes left on the stack\n", hr, stack_left);
+            /* a guess, not a measured shape: slots 6 and 8 read as the getters of what 7 and 9 set (one out pointer) */
+            for (i = 6; i <= 8; i += 2)
+            {
+                static char what[64];
+                BYTE buf[16];
+                int pass;
+
+                for (pass = 0; pass < 3; pass++)
+                {
+                    snprintf(what, sizeof(what), "configuration object slot %d read as a getter", i);
+                    step = what;
+                    memset(buf, 0xaa, sizeof(buf));
+                    hr = call2((*(void ***)acio)[i], acio, (UINT_PTR)buf);
+                    printf("  slot %d as a getter: %08lx, %d bytes left on the stack, buffer %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                           i, hr, stack_left, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+                    if (pass == 2) break;
+                    snprintf(what, sizeof(what), "configuration object slot %d (%d)", i + 1, !pass);
+                    hr = call2((*(void ***)acio)[i + 1], acio, !pass);
+                    printf("  slot %d (%d): %08lx\n", i + 1, !pass, hr);
+                }
+            }
         }
     }
     else if (FAILED(hr))

@@ -161,7 +161,12 @@ of our own in a module-local IDL with the measured interface ids; both architect
   an object, which nothing calls while no input arrives; on Windows 10 there is no such object. This is the part to
   measure next: on Windows with input sent to the window while tracing with `_O`/`_I`, and under Wine by seeing what the
   application asks of the site.
-* The configuration object's two calls can be stored and otherwise ignored until their meaning is known.
+* The configuration object holds two 32-bit settings (measured on both systems with `inputsite-create-probe.exe sink`):
+  slots 6 and 8 read them through an out pointer, slots 7 and 9 write them; both start as 0 and read back what was
+  written, each on its own. They are stored and otherwise ignored until their meaning is known.
+* The sink handle is not checked by Windows: an event handle in its place (`sinkbad`) gives a site as well. With a NULL
+  handle (`sink0`) the system calls slot 10 of the host's `{92179cc0}` with a handle of its own and then asks slot 9
+  again; the site is created even when that call fails. An application's host always has a sink, so Wine only notes it.
 * First goal: creation succeeds and the page load that follows on Windows (47 ms after the first activation) starts.
   Input delivery through the site comes second; the lab drives Notepad with window messages today.
 

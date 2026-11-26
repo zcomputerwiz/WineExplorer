@@ -5,7 +5,7 @@ InputSite factory {73f80911}: 80004002
 InputSite factory {8ca0442d}: 00000000 (the calls below use this interface)
     host: QueryInterface({92179cc0-ae1f-48bc-a354-8f7a8800f2fb}) on stub 0 -> S_OK
     host: slot 9 of {92179cc0-ae1f-48bc-a354-8f7a8800f2fb} called -> the input sink, S_OK
-InputSite factory slot 6 (host, out): 00000000, site returned
+InputSite factory slot 6 (host, out): 00000000, site returned, 0 bytes left on the stack
   site:
     GetRuntimeClassName: 00000000 "Windows.UI.Internal.Input.InputSite"
     GetTrustLevel: 00000000 0
@@ -25,7 +25,7 @@ InputSite factory slot 6 (host, out): 00000000, site returned
   site -> IUnknown -> {cfb32fa7}: 80004002
   the pointer the factory returned is used as the site
 ActivationConfigurationInputObject factory {4c8421ca}: 00000000
-ActivationConfigurationInputObject factory slot 6 (site, out): 00000000, object returned
+ActivationConfigurationInputObject factory slot 6 (site, out): 00000000, object returned, 0 bytes left on the stack
   configuration object:
     GetRuntimeClassName: 00000000 "Windows.UI.Internal.Input.ActivationConfigurationInputObject"
     GetTrustLevel: 00000000 0
@@ -44,8 +44,18 @@ ActivationConfigurationInputObject factory slot 6 (site, out): 00000000, object 
     QueryInterface IWeakReferenceSource: 80004002
     QueryInterface {cfb32fa7} (asked of the site by the application): 80004002
     QueryInterface {92179cc0-ae1f-48bc-a354-8f7a8800f2fb} (asked of the host): 80004002
-  configuration object slot 7 (0): 00000000
-  configuration object slot 9 (0): 00000000
+  configuration object slot 7 (0): 00000000, 0 bytes left on the stack
+  configuration object slot 9 (0): 00000000, 0 bytes left on the stack
+  slot 6 as a getter: 00000000, 0 bytes left on the stack, buffer 00 00 00 00 aa aa aa aa
+  slot 7 (1): 00000000
+  slot 6 as a getter: 00000000, 0 bytes left on the stack, buffer 01 00 00 00 aa aa aa aa
+  slot 7 (0): 00000000
+  slot 6 as a getter: 00000000, 0 bytes left on the stack, buffer 00 00 00 00 aa aa aa aa
+  slot 8 as a getter: 00000000, 0 bytes left on the stack, buffer 00 00 00 00 aa aa aa aa
+  slot 9 (1): 00000000
+  slot 8 as a getter: 00000000, 0 bytes left on the stack, buffer 01 00 00 00 aa aa aa aa
+  slot 9 (0): 00000000
+  slot 8 as a getter: 00000000, 0 bytes left on the stack, buffer 00 00 00 00 aa aa aa aa
 configuration object Release: 1
 site Release: 2
 host references left: 1, interface ids asked of the host: 1
