@@ -355,6 +355,7 @@ typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
 typedef struct { DWORD backend; UINT64 window; char handle[33]; DWORD scale; } WEX_WM_IDENTITY;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
 DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity );
+DWORD WINAPI WexWmSetClassShadow( HWND hwnd, BOOL shadow );   /* CS_DROPSHADOW, either backend; ERROR_NOT_READY: ask again */
 /* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
  * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
  * the success-only Wayland sent cache, including both per-window scales. */

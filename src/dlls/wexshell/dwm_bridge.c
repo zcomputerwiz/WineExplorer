@@ -638,5 +638,5 @@ BOOL dwm_composition_start(void)
     }
     dwm_bridge_start();
     dwm_clock_start();
-    return !wayland;
+    return TRUE;   /* composition is on with either backend (the class shadow hook needs it under Wayland too) */
 }
