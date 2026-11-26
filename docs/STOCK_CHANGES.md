@@ -5235,3 +5235,13 @@ desktop a program makes goes when it ends. Check:
 `scripts/wexbuild-root/b121-x11-survivors.sh` (Xvfb, `scripts/xwin-probe.c`; fails without the variable).
 Not done: the X server keeps the dead manager's other resources (cursor, colormap, hidden helper windows) until the
 session ends.
+
+Addition (2026-11-26, batch 1147, `claude/b121-adopt-fallback`): a shell restart on the BIOS image left a blank full-screen
+"Wine Desktop" above the desktop and a second one in the window list: the adoption returned FALSE, the caller then made
+the new window the desktop, and the retained old window stayed above it. Now `X11DRV_adopt_desktop` logs the reason at
+each FALSE return (not retained, window gone, event selection refused), waits up to 20 x 50 ms for a window that is not
+there yet or still held (the old connection can still be closing after `kill -9`), and when the window is there and
+cannot be taken over it destroys it (with the dead shell's taskbar and the programs' windows in it, as before B121), so
+the new window is the only desktop. `WINE_X11_RETAIN_TEST_REFUSE` (tests only) refuses the takeover. Check:
+`scripts/wexbuild-root/b121-adopt-refused.sh` (refused: one Wine Desktop, one WineAppBar, the warnings in the log; with
+`WINE_X11_RETAIN_TEST_REFUSE=0` the plain takeover), and `b121-x11-survivors.sh` still passes.
