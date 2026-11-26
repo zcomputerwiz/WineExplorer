@@ -4,7 +4,7 @@
 
 * `dlls/imm32/imm.c`, `imm32.spec`: `CtfImmTIMActivate(hkl, activate)` was a bare `@ stub` (a call aborted the process). It now
   gives the calling thread an apartment (the existing implicit COM initialisation) and an active msctf thread manager
-  (`TF_CreateThreadMgr` + `Activate`, loaded dynamically, kept with the thread's implicit COM data and deactivated with it); with
+  (`TF_CreateThreadMgr` + `Activate`, loaded dynamically, kept until the thread's default IME window is destroyed, whatever the apartment: Windows 11 creates it in an MTA thread too and keeps it when the thread leaves the implicit STA for the MTA); with
   FALSE it does nothing; returns S_OK. The default IME window calls it on `IME_INTERNAL_ACTIVATE` (sent by win32u when a window of
   the thread is activated).
 * Measured on Windows 11 (`tests/uwp/alpc/tsf-probe.c`, 64- and 32-bit): user32 calls `CtfImmTIMActivate(hkl, TRUE)` on the first
@@ -16,7 +16,7 @@
   Notepad further (lab b37), but it removes an abort for any caller and matches Windows.
 * Blast radius: every thread that activates a window now loads msctf.dll and holds an activated thread manager (Windows does the
   same). Programs that create their own manager get the same per-thread object.
-* Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate`. Lab: imm32 test x86_64 5586 / i386 5589 tests, 0 failures. msctf's
+* Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate`. Lab: imm32 test x86_64 5600 / i386 5597 tests (with the MTA cases), 0 failures. msctf's
   `inputprocessor` test times out in the lab with and without the change.
 
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
