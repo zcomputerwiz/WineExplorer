@@ -123,6 +123,34 @@ static DWORD WINAPI run(void *arg)
             pump(); printf("  CtfImmTIMActivate returned %d, stack moved by %ld\n", r, (long)(after - before)); state("after CtfImmTIMActivate", h);
         }
         break;
+    case 8:
+    {
+        HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        APTTYPE type = -1; APTTYPEQUALIFIER qual = -1;
+        printf("I: thread in the MTA (CoInitializeEx %#lx), window, SetFocus, then CtfImmTIMActivate(TRUE)\n", hr);
+        h = make(WS_OVERLAPPEDWINDOW, NULL); pump(); state("created", h);
+        SetFocus(h); pump(); state("SetFocus", h);
+        CoGetApartmentType(&type, &qual); printf("  apartment type %d\n", type);
+        if (pCtfImmTIMActivate) { printf("  CtfImmTIMActivate returned %#x\n", pCtfImmTIMActivate(GetKeyboardLayout(0), TRUE)); pump(); state("after CtfImmTIMActivate", h); }
+        CoGetApartmentType(&type, &qual); printf("  apartment type %d\n", type);
+        DestroyWindow(h); h = NULL;
+        CoUninitialize();
+        break;
+    }
+    case 9:
+    {
+        HRESULT hr;
+        APTTYPE type = -1; APTTYPEQUALIFIER qual = -1;
+        printf("J: window activated first (STA by imm32), then the thread asks for the MTA\n");
+        h = make(WS_OVERLAPPEDWINDOW, NULL); pump();
+        SetFocus(h); pump(); state("SetFocus", h);
+        hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        CoGetApartmentType(&type, &qual);
+        printf("  CoInitializeEx(MTA) %#lx, apartment type %d\n", hr, type);
+        state("after CoInitializeEx(MTA)", h);
+        if (SUCCEEDED(hr)) CoUninitialize();
+        break;
+    }
     case 6:
         printf("G: hidden window, SetFocus on it (no show)\n");
         h = make(WS_OVERLAPPEDWINDOW, NULL); pump(); state("created", h);
@@ -146,7 +174,7 @@ int main(int argc, char **argv)
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     RegisterClassW(&wc);
     printf("%d-bit\n", (int)sizeof(void *) * 8);
-    for (c = 0; c <= 7; c++)
+    for (c = 0; c <= 9; c++)
     {
         HANDLE th;
         if (argc > 1 && atoi(argv[1]) != c) continue;

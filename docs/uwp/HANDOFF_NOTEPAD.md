@@ -293,7 +293,7 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          host because the imm32 test installs a test IME into the system; the probe shows the same on Windows. Wine commit
          15a48281. Lab (u13 tree, copy of the booted `claude/ldr-prefix`): imm32 test x86_64 5586 tests, i386 5589 tests, 0 failures
          both; the 32-bit probe matches Windows (stack balanced, FALSE does nothing, TRUE and SW_SHOWDEFAULT give the manager).
-         msctf's `inputprocessor` test times out (300 s) in this lab with and without the change (pre-existing). Lab trap: a new
+         msctf's `inputprocessor` test times out (300 s) in this lab with and without the change (pre-existing). Review fix (Session 0): the manager now lives with the default IME window, not the implicit STA (Wine 89f15b4d, pin a5f8a63e): Windows 11 creates it in an MTA thread too (probe case I) and keeps it when the thread enters the MTA after activation (case J, CoInitializeEx returns S_OK); lab: imm32 x86_64 5600 / i386 5597 tests, 0 failures, probe I and J match on both. Lab trap: a new
          prefix from the u13 build hangs in `wineboot -u`; copy `claude/ldr-prefix` instead.
        * Notepad with it (b37): the UI thread now has a thread manager (`TF_CreateThreadMgr` at 608.202, before TabData), and nothing
          else moves: same windows, same activations (stops at `UserActivityRequestManager`), no InputSite, 1 clock call, no caret.
