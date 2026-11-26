@@ -205,7 +205,10 @@ wex_shell_running()
     # the X11 session's explorer has "/desktop=...", the Wayland session's "/shell"; of this prefix only (another
     # prefix's explorer of the same account must not hold the supervisor)
     for pid in $(pgrep -u "$(id -u)" -f 'C:.windows.system32.explorer.exe /(desktop|shell)' 2>/dev/null); do
-        env_prefix=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^WINEPREFIX=//p' | head -1)
+        # an environment that cannot be read (another credential set, not dumpable: not a shell of this session) is skipped;
+        # the redirect's own error is silenced by the group
+        env_prefix=$( { tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^WINEPREFIX=//p' | head -1; } 2>/dev/null ) || true
+        [ -r "/proc/$pid/environ" ] || continue
         [ "${env_prefix:-$HOME/.wine}" = "$WINEPREFIX" ] && return 0
     done
     return 1
