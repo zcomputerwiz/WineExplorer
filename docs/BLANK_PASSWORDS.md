@@ -72,7 +72,11 @@ password later by `passwd(1)` would never leave the group. A root-run piece keep
    dies with its message when it refuses. `wex-blank-pam.sh undo` puts Debian's profile back.
    - **The screen locker (G5):** the session has no lock screen yet (`Lock Computer` is not built). When it is, it must call a PAM
      service with the same `pam_succeed_if` line and no `nullok`, or a blank user could not unlock it.
-5. **Windows side.** `LogonUser` and `runas` with a blank password fail with `ERROR_ACCOUNT_RESTRICTION` (1327), except for the
+   - A member who has a password and types it wrong is asked **once** (measured with `scripts/pamauth.c`, `PAMAUTH_COUNT=1`: the
+     pair's `pam_unix` keeps the first answer for `common-auth`), so there is no double prompt.
+5. **Windows side** (black-box check of a Windows 11 host, 2026-11-26, registry and `net accounts` reads only: `Lsa\LimitBlankPasswordUse`
+   is 1, the default; the minimum password length is 0; the local account list shows `PasswordRequired` false for the owner's
+   own account, so a blank password is allowed and then limited to the console by that value, as this design does). `LogonUser` and `runas` with a blank password fail with `ERROR_ACCOUNT_RESTRICTION` (1327), except for the
    interactive logon of the console. Where our logon path (`logonui`, the consent prompt's credentials) does not exist or does
    not check yet, this is a follow-up, not part of this change. A network logon with a blank password (SMB, a Windows share
    served by the host) is refused by the same rule: it never goes through the greeter's service.

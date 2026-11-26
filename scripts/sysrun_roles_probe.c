@@ -629,6 +629,66 @@ static void svc_sd_set(const char *name)
     CloseServiceHandle(scm);
 }
 
+/* B119 (1), the Recovery page's rule without the UI: a restart failure action needs SERVICE_START on the handle (Wine's
+ * test_failure_actions), "Take No Action" does not.
+ *   svc-fa-grant NAME   (system role) Authenticated Users get read, query and SERVICE_CHANGE_CONFIG, not SERVICE_START
+ *   svc-fa-run NAME     (a standard user) the grant above: no action saves, a restart gives ERROR_ACCESS_DENIED, nothing changed
+ *   svc-fa-run NAME full  (system role) CHANGE_CONFIG | START: a restart action saves
+ * The DACL gives SY 0x201fd, which has no SERVICE_CHANGE_CONFIG: the system role's "full" run and its WRITE_DAC open succeed
+ * on purpose through the Administrators entry (0xf01ff) that the system role's token holds. The "denied" expectation of
+ * svc-fa-run relies on the caller's token being the filtered, non-elevated one (a standard user, or the administrator's
+ * limited token, where BA is deny-only): an elevated administrator would legitimately save the restart. */
+static void svc_fa_grant(const char *name)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;
+    PSECURITY_DESCRIPTOR sd;
+
+    check(scm != NULL, "OpenSCManager works");
+    if (!scm) return;
+    svc = OpenServiceA(scm, name, WRITE_DAC | READ_CONTROL);
+    check(svc != NULL, "OpenService(WRITE_DAC | READ_CONTROL) works for the system role");
+    if (svc)
+    {
+        check(ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;0x2018f;;;AU)(A;;0x201fd;;;SY)(A;;0xf01ff;;;BA)",
+                                                                   SDDL_REVISION_1, &sd, NULL), "build the DACL");
+        check(SetServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, sd), "SetServiceObjectSecurity(DACL) works for the system role");
+        LocalFree(sd);
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
+static void svc_fa_run(const char *name, int full)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;
+    SC_ACTION none = { SC_ACTION_NONE, 0 }, restart = { SC_ACTION_RESTART, 60000 };
+    SERVICE_FAILURE_ACTIONSW set_none = { 86400, NULL, NULL, 1, &none }, set_restart = { 86400, NULL, NULL, 1, &restart };
+    BYTE buf[1024];
+    SERVICE_FAILURE_ACTIONSW *fa = (SERVICE_FAILURE_ACTIONSW *)buf;
+    DWORD needed, err;
+
+    check(scm != NULL, "OpenSCManager works");
+    if (!scm) return;
+    svc = OpenServiceA(scm, name, SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG | (full ? SERVICE_START : 0));
+    check(svc != NULL, full ? "OpenService(QUERY_CONFIG | CHANGE_CONFIG | START) works" : "OpenService(QUERY_CONFIG | CHANGE_CONFIG) works");
+    if (svc)
+    {
+        err = ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &set_none) ? 0 : GetLastError();
+        check(err == 0, "Take No Action saves without SERVICE_START");
+        err = ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &set_restart) ? 0 : GetLastError();
+        printf("restart action: error %lu\n", err);
+        if (full) check(err == 0, "Restart the Service saves with SERVICE_START");
+        else check(err == ERROR_ACCESS_DENIED, "Restart the Service is access denied without SERVICE_START");
+        memset(buf, 0, sizeof(buf));
+        if (QueryServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, buf, sizeof(buf), &needed) && fa->cActions == 1)
+            check(fa->lpsaActions[0].Type == (full ? SC_ACTION_RESTART : SC_ACTION_NONE),
+                  full ? "the stored action is the restart" : "the refused restart changed nothing: the action is still none");
+        else check(0, "the failure actions can be read back");
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
 static void scm_allowed(void)
 {
     SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE);
@@ -1148,6 +1208,8 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "scm-allowed")) scm_allowed();
     else if (!strcmp(mode, "svc-start") && argc > 3) svc_start(argv[2], argv[3]);
     else if (!strcmp(mode, "svc-sd-set")) svc_sd_set(arg);
+    else if (!strcmp(mode, "svc-fa-grant")) svc_fa_grant(arg);
+    else if (!strcmp(mode, "svc-fa-run")) svc_fa_run(arg, argc > 3 && !strcmp(argv[3], "full"));
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
     else if (!strcmp(mode, "svc-table") && argc > 2)
     {
