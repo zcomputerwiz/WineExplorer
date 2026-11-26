@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: keeps the group nopasswdlogin equal to the accounts with an empty password (docs/BLANK_PASSWORDS.md). Runs at
+# boot, when wex-accounts-blank.path sees /etc/shadow or /etc/passwd change, and on request: the accounts helper starts
+# exactly this unit through the one polkit grant (installer/polkit/49-wexaccounts.rules) after it makes or changes a blank
+# account. The program takes no argument and reads nothing from its caller: it can only enforce the rule.
+
+[Unit]
+Description=Keep the passwordless logon group in step with empty passwords (WineExplorer)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

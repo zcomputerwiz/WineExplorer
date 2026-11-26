@@ -18,7 +18,7 @@
  *   addmember GROUP NAME NetLocalGroupAddMembers 3 "status=N"
  *   delmember GROUP NAME NetLocalGroupDelMembers 3 "status=N"
  *   changepw NAME OLD NEW NetUserChangePassword    "status=N"
- *   addblank NAME        NetUserAdd level 1, empty password          "status=N" "parm=P"
+ *   addblank NAME [disabled]  NetUserAdd level 1, empty password (and UF_ACCOUNTDISABLE)  "status=N" "parm=P"
  *   pwblank NAME         NetUserSetInfo level 1003, empty password   "status=N" "parm=P"
  * Before the mode: --setenv NAME=VALUE (any number) sets an environment variable first; the suite uses it to show that the
  * old test variables WEX_ACCOUNTS_PIPE and WEX_NETAPI_STOCK are not honoured any more.
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
         u.usri1_name = w(argv[2]);
         u.usri1_password = L"";
         u.usri1_priv = USER_PRIV_USER;
-        u.usri1_flags = UF_SCRIPT | UF_NORMAL_ACCOUNT;
+        u.usri1_flags = UF_SCRIPT | UF_NORMAL_ACCOUNT | (argc > 3 && !strcmp(argv[3], "disabled") ? UF_ACCOUNTDISABLE : 0);
         st = NetUserAdd(NULL, 1, (BYTE *)&u, &parm);
         printf("status=%lu\nparm=%lu\n", st, parm);
     }
