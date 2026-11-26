@@ -7011,9 +7011,21 @@ for b in 64 32; do
 done
 # the environment (WO 3): USERDOMAIN is the domain's flat name (wineboot's Volatile Environment), USERNAME and the
 # profile folder the plain name; a local account's USERDOMAIN is not the domain
-OUT="$(dom_probe "$DOM" 64 env USERDOMAIN)"; grep -qx 'env=WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERDOMAIN of a domain account"; }
-OUT="$(dom_probe "$DOM" 64 env USERNAME)"; grep -qx 'env=wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERNAME of a domain account"; }
-OUT="$(dom_probe "$DOM" 64 env USERPROFILE)"; grep -qix 'env=C:\\users\\wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: the profile folder of a domain account"; }
+# (env=error203 is ERROR_ENVVAR_NOT_FOUND: the variable was missing from the process; it flaked twice, batches 1143 and
+# 1144, and passed alone. dom_env_fail says what the process saw: its wineserver's start, the Volatile Environment the
+# user's prefix holds and the user's processes, so a third time shows whether wineboot had not written it yet.)
+dom_env_fail()   # dom_env_fail WHAT
+{
+    { echo "--- $1: probe output [$OUT]"; echo "--- the probe's wine log (wineboot, server, environment):"
+      grep -iE 'wineboot|volatile|environment|wineserver|err:' "$ROOT/dom.err" | head -20
+      echo "--- Volatile Environment in $DOM's prefix:"
+      run_as "$DOM" env WINEDEBUG=-all timeout 60 "$BUILD/wine" reg query 'HKCU\Volatile Environment' 2>&1 | tr -d '\r' | head -20
+      echo "--- $DOM's processes:"; ps -u "$DOM" -o pid,etimes,stat,args | head -10; } >&2
+    fail "domain: $1"
+}
+OUT="$(dom_probe "$DOM" 64 env USERDOMAIN)"; grep -qx 'env=WEXLAB' <<<"$OUT" || dom_env_fail "USERDOMAIN of a domain account"
+OUT="$(dom_probe "$DOM" 64 env USERNAME)"; grep -qx 'env=wexdom' <<<"$OUT" || dom_env_fail "USERNAME of a domain account"
+OUT="$(dom_probe "$DOM" 64 env USERPROFILE)"; grep -qix 'env=C:\\users\\wexdom' <<<"$OUT" || dom_env_fail "the profile folder of a domain account"
 OUT="$(dom_probe "$STD" 64 env USERDOMAIN)"; grep -q '^env=.' <<<"$OUT" && ! grep -q '^env=error' <<<"$OUT" && ! grep -q 'WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERDOMAIN of a local account"; }
 # SYSTEM (session 0) keeps the computer name, never the well-known SIDs' "NT AUTHORITY"
 OUT="$(s0_wine "$ROOT/probes/tierprobe64.exe" env USERDOMAIN | tr -d '\r')"

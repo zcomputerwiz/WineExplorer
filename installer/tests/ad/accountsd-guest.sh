@@ -184,6 +184,16 @@ if id zzaccd >/dev/null 2>&1; then
     reconcile
     echo "note enabled_blank_state: in group [$(ingroup zzaccd && echo yes || echo no)] chage: $(chage -l zzaccd 2>/dev/null | grep -i 'account expires' | cut -d: -f2)"
     if pamok lightdm zzaccd 0 ""; then echo "note enabled_blank_logon_at_the_greeter: accepted"; else echo "note enabled_blank_logon_at_the_greeter: refused"; fi
+    # follow-up A (B117): does AccountsService report Locked=false right after SetLocked(false) and then true again? The
+    # helper looks at Locked one second after an unlock; sample it at 0, 0.5, 1, 2 and 4 s for a bare "!" (a blank account
+    # locked, then unlocked) and for an account with a hash (which must stay unlocked at every sample)
+    lockedp() { runuser -u wexaccounts -- busctl --system --timeout=20 get-property org.freedesktop.Accounts "/org/freedesktop/Accounts/User$(id -u zzaccd)" org.freedesktop.Accounts.User Locked 2>/dev/null | awk '{print $2}'; }
+    samples() { local out= t; for t in 0 0.5 0.5 1 2; do sleep "$t"; out="$out $(lockedp)"; done; echo "$out"; }
+    umode SetPasswordMode i 2; umode SetLocked b true; umode SetLocked b false
+    echo "note unlock_bare_bang_locked_samples_at_0_0.5_1_2_4s:$(samples) field [$(shadow zzaccd 2)]"
+    umode SetPassword ss "$SECHASH" ''; umode SetLocked b true; umode SetLocked b false
+    smp=$(samples)
+    case "$smp" in *true*) notok unlock_with_a_hash_stays_unlocked "Locked samples:$smp field [$(shadow zzaccd 2)]" ;; *) ok unlock_with_a_hash_stays_unlocked; echo "note unlock_hash_locked_samples:$smp" ;; esac
     runuser -u wexaccounts -- busctl --system --timeout=20 call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts DeleteUser xb "$(id -u zzaccd)" 0 >/dev/null 2>&1
 else
     notok blank_test_user_created "zzaccd could not be created"
