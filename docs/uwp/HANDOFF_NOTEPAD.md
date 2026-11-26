@@ -305,6 +305,26 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          timer, the private port, `SystemUserAdapterWindowClass`-style second window, `DcppUserAdapterWindowClass` style), then
          measure where the (1, 0) lands; if Windows posts it at completion time, post it from wineserver when the packet completes
          (the queue already knows its port).
+     - **What else the existing runs show; targets ranked (2026-11-27, later; b37 relay; Windows traces of 2026-11-26/27).**
+       1. *CoreMessaging re-arm (both threads), primary.* Wine's UI thread wake packet (0x118, event 0xf8) is moved to the Init2
+          port once (603.920) and never associated again; its event is still set 7 times afterwards (6 by the UI thread itself,
+          1 by the input thread), and each of those signals is lost. Windows: the UI thread's wake event is set 10 times (by the
+          input thread and by the UI thread itself from `Microsoft.UI.Input`) and the packet is re-armed each round. The batch of
+          seven packets is not what keeps the rounds alive: on Windows six of its targets are never signalled in 30 s and their
+          packets are associated once. Difference in placement: Windows registers the batch inside a (6) dispatcher round and
+          re-arms right after its drain; Wine registers it inside a (5, 4) handler (which posts the (6) itself) and does not.
+       2. *InputSite does not exist in Wine.* No `Windows.UI.Internal.Input.InputSite`, `ActivationConfigurationInputObject` or
+          `InputHost` anywhere in the tree. Once the rounds go on, the input thread will ask for them and fail. Factory interfaces
+          Notepad asks for on Windows: InputSite {73f80911-7a51-5b0f-906b-f6402ea6c3cb}, ActivationConfigurationInputObject
+          {4c8421ca-3863-5236-b09a-757cf68c5fa5}, `Windows.System.DispatcherQueue` {a96d83d7-9371-4517-9245-d0824ac12c74}.
+       3. *System CoreUI session is a semi-stub.* FrameworkUdk calls `CoreMessaging.dll!CoreUICreate` on the UI thread (603.347);
+          Wine's builtin answers session slots 8, 12, 3 and a generic interface {37a94c05-1aa6-4cea-9049-083bba055cec} slot 5,
+          and drops the handler registration of slot 12 (a runtime function and a context). Windows creates a
+          `SystemUserAdapterWindowClass` window on the UI thread there (second Init2 registration on the same port), but that
+          window gets no dispatch in 30 s, so nothing shows the dropped handler being needed yet. Lower priority.
+       4. *Text input*: thread manager now as on Windows (`claude/ctfimm-tim`); `TextInputFramework.dll` absent. Not shown to matter.
+       5. *Compositor*: one `DCompositionWaitForCompositorClock` (thread 0184) and six `DCompositionCreateSharedVisualHandle` on
+          the UI thread; most likely a consequence of the stopped rounds (no frames requested), to recheck after 1.
      - **When Windows starts a thread's text services, and the Wine side (2026-11-26, night; `tests/uwp/alpc/tsf-probe.c`).**
        * Windows 11 (probe, one new thread per case): `msctf.dll` is loaded with the thread's first window (with its `IME` window).
          The thread manager (`TF_GetThreadMgr` non-NULL), `CicMarshalWndClass`, `OleMainThreadWndClass` (an apartment),
