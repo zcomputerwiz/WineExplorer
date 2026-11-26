@@ -2,8 +2,11 @@
 
 # Deferred custom actions without impersonation run as SYSTEM (msi; B108)
 
-Status: design note, draft 1, 2026-11-26, for the reviewer and the orchestrator. Not built. Asked for by the
-orchestrator after the `\BaseNamedObjects` audit (`SESSION0_CROSS_SERVER.md`, "Order: a proposal").
+Status: design note, draft 2, 2026-11-26. **The orchestrator's go for B (2026-11-26), with four conditions** written
+in below: B is an interim (see "B is an interim"); the gate exactly as proposed, with refusal tests; the per-install
+folder made by the SYSTEM side; its own branches and batch, with B108 as the acceptance case. The measurement it asked
+for first is done ("What Windows does"). Asked for by the orchestrator after the `\BaseNamedObjects` audit
+(`SESSION0_CROSS_SERVER.md`, "Order: a proposal").
 
 ## The problem
 
@@ -30,14 +33,27 @@ SYSTEM-only keys, starting services, registering machine COM servers with a SYST
   deferred actions run as the user (the elevated user's token); actions without impersonation run as LocalSystem.
   Immediate actions run in the client, as the user.
 - Custom action DLLs run in a separate host process (`msiexec.exe -Embedding`), one per architecture and identity.
-- **The session:** B108 saw the no-impersonation chain as SYSTEM in the user's session 1, not session 0. So the host
-  runs with a SYSTEM token whose session is the client's, and processes it starts (Omaha) are SYSTEM in session 1.
+- **The session:** B108 saw the no-impersonation chain as SYSTEM in the user's session 1, not session 0, and the
+  measurement below confirms it for DLL and EXE actions: the host runs with a SYSTEM token whose session is the
+  client's, and processes it starts (Omaha) are SYSTEM in session 1.
 - Not elevated (a per-user install by a standard user, no `AlwaysInstallElevated`): no-impersonation actions run as the
   user; there is no SYSTEM.
 
-To confirm on `WinRef-EFR` before building (the lab can do it in one run): the token of a no-impersonation DLL
-action's host (user, session, integrity, privileges) in an elevated install and in a standard user's per-user install;
-the same for an EXE action (types 2, 18, 34, 50), which Windows starts from the host rather than the client.
+**Measured 2026-11-26** on the lab's Windows oracle `Copilot-Win10-B` (Windows 10 Pro; `WinRef-EFR` is no longer
+registered), with our own test package: no files, nothing registered, five actions that write the token of the
+process they run in (probe sources in this session's scratch, `caprobe`). `lab` (an administrator) at the console,
+session 1. Elevated: from the console's Run box with the VM's own consent prompt, `ALLUSERS=1`. Not elevated: the
+limited token (guest control), `ALLUSERS="" MSIINSTALLPERUSER=1`. Both installs returned 0.
+
+| Install | Action | Process | User | Session | Elevation | Integrity |
+|---|---|---|---|---|---|---|
+| elevated, per machine | immediate DLL; deferred DLL and EXE with impersonation | `MsiExec.exe` host; the EXE from `C:\Windows\Installer\MSI*.tmp` | the user | 1 | full (type 2) | High |
+| elevated, per machine | deferred DLL and EXE **without** impersonation | the "Elevated Non-remapped custom action server"; the EXE from `C:\Windows\Installer\MSI*.tmp` | **SYSTEM** | **1** | type 1 | System (19 privileges) |
+| not elevated, per user | all five, the two without impersonation included | `MsiExec.exe` host; the EXE from `C:\Windows\Installer\MSI*.tmp` | the user | 1 | limited (type 3) | Medium |
+
+So: SYSTEM only for an elevated install, and then **in the user's session**; the binaries Windows runs are extracted
+by the service to `C:\Windows\Installer\MSI*.tmp`, not to a path the client names. This is option A's identity and
+session.
 
 ## What WineExplorer has to work with
 
@@ -85,11 +101,13 @@ proposed.
    for this host: the session 0 host creates its pipe (name from session 0, with a random part, DACL for the client's
    SID only) and the client connects; the callbacks (`MsiGetProperty`, `MsiSetProperty`, `MsiProcessMessage`, the
    database calls) go over that connection instead of `ncalrpc` to the client.
-4. **Files.** The DLL binary of an action is written by the client to a folder session 0 creates per install under the
-   machine root (`C:\Windows\Installer\<random>`, SYSTEM and Administrators only), and the host loads it from there.
-   An EXE action from the Binary table goes the same way; an EXE action naming an installed file starts it by its
-   machine path; one naming a file in the user's profile is refused with a FIXME (Windows can, here session 0 cannot
-   read the profile).
+4. **Files.** Session 0 (the SYSTEM side) creates the per-install folder under the machine root
+   (`C:\Windows\Installer\<random>`), owned by SYSTEM with access for SYSTEM and Administrators only, before any binary
+   goes there, and tells the client its name. The client writes the action's DLL (or Binary-table EXE) into it; the
+   host loads it from there. **The client never names a path the host executes:** a request names the action, and the
+   host finds the binary in its own folder by the action's Binary-table key. An EXE action naming an installed file
+   is started by the host from the package's own directory table (machine paths); one naming a file in the user's
+   profile is refused with a FIXME (Windows can, here session 0 cannot read the profile).
 5. **Children.** Processes an action starts are SYSTEM in session 0, which is what B108 needs.
 6. **Log.** Session 0 writes an event (the package, the user, the action name) for each host it starts.
 
@@ -100,14 +118,39 @@ that is not that elevated install (another program of the session, a limited tok
 msiexec) obtaining a SYSTEM host. Hence the caller check on the described token, the per-install request, the host's
 single client, and the host's end with the install.
 
+## B is an interim
+
+Windows runs the host as SYSTEM in the **user's** session (option A); B runs it in session 0 because only there does
+B108's chain share a server with Omaha's service today. Once X3 and X4 (M3 across servers) land, B108 is retested
+with option A; if A works, B goes.
+
+What behaves differently in session 0 (known kinds, for a package whose no-impersonation action does them):
+
+- **A window.** An action that shows a dialog or a message box (against Windows' advice for these actions): session 0
+  has no visible desktop. The host does not refuse it: the window is created on session 0's desktop, invisible, as
+  under session 0 isolation on Windows when a service shows one; a modal one waits for its own timeout or the
+  install's cancellation. The host logs a FIXME once per action that creates a top-level window.
+- **Starting the installed program** for the user ("launch after install" done in a deferred no-impersonation
+  action): it starts as SYSTEM in session 0, invisible, where Windows starts it as SYSTEM in the user's session
+  (visible). Usually done as an immediate action in the client instead, which is unaffected.
+- **Session-scoped things:** `Local\` and unprefixed names (the host's are session 0's, which is `\BaseNamedObjects`),
+  the session id (`ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId` comparisons), the user's processes
+  (enumerating them, waiting on one: not visible from session 0 before X3), the user's window station and clipboard.
+- **The user's profile** (files in the user's home: not readable by session 0's account). Windows' SYSTEM can read them.
+
 ## Tests (when built)
 
 - A test MSI with three deferred actions (impersonated, not impersonated, an EXE without impersonation) that each
   write their token (user, session, elevation) to a file: elevated per-machine install: user, SYSTEM in session 0,
   SYSTEM in session 0; a standard user's per-user install: the user three times. 32-bit and 64-bit actions.
-- Refusals: a limited token asking, an elevated non-msiexec program asking, a second client on the host's pipe, a
-  request after the install ended.
-- B108: the Edge MSI run by the elevated user on a clean image (no WebView2) installs.
+- **The gate (the orchestrator's condition):** a non-elevated caller asking is refused; a per-user install asking is
+  refused (even elevated); an impersonated action of an elevated per-machine install stays in the elevated `msiexec`.
+- Refusals besides: an elevated non-msiexec program asking, a second client on the host's pipe, a request after the
+  install ended, a request naming a path (none is accepted: the host takes binaries only from its own folder).
+- The folder: created by session 0 before the first binary, owner SYSTEM, DACL SYSTEM and Administrators only, gone
+  after the install.
+- **Acceptance (B108):** the Edge enterprise MSI run by the elevated user on a clean image (no WebView2) installs.
+  B is built on its own WineExplorer and Wine branches and goes into its own batch, with this case retested.
 - Plain prefixes and development mode keep stock behaviour (no session 0: the bit stays ignored, with the WARN).
 
 ## Stock changes (expected)
@@ -118,7 +161,8 @@ existing one (`wexelevate` already serves elevated requests in session 0). Each 
 
 ## Open questions
 
-1. Windows' token for the host (above), to measure on `WinRef-EFR`.
+1. Windows' token for the host: answered (measured above): SYSTEM in the user's session for an elevated install,
+   the user otherwise.
 2. Which session 0 process takes the role: a new `msiserver` service (the Windows name) or `wexelevate`.
 3. Whether A is wanted as well later, for packages whose no-impersonation actions need the user's session (UI, the
    session's objects); none is known.
