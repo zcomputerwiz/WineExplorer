@@ -11,6 +11,9 @@
  *   none   only IUnknown, IInspectable, IAgileObject
  *   all    every interface id (each gets its own logging stub; methods return E_NOTIMPL)
  *   IID... the listed interface ids (braces included), besides the three above
+ *   sink   as all, and the two questions the system was seen asking get an answer: slot 9 of {92179cc0-...} gives a
+ *          composition input sink that this program makes for a window of its own (NtCreateCompositionInputSink, block as in
+ *          sink-probe2.c), slot 9 of {01dc794b-...} gives the host object itself
  * The second argument chooses the thread: sta (default), mta, or dq (a single-threaded apartment with a dispatcher queue made
  * by CreateDispatcherQueueController, and a message loop of two seconds after the calls).
  * For every object obtained: GetIids, GetRuntimeClassName, GetTrustLevel, QueryInterface for the ids seen so far.
@@ -34,6 +37,7 @@ static const GUID iid_agile = {0x94ea2b94, 0xe9cc, 0x49e0, {0xc0, 0xff, 0xee, 0x
 static const GUID iid_marshal = {0x00000003, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 static const GUID iid_weakref_source = {0x00000038, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 static const GUID iid_inputsite_factory = {0x73f80911, 0x7a51, 0x5b0f, {0x90, 0x6b, 0xf6, 0x40, 0x2e, 0xa6, 0xc3, 0xcb}};
+static const GUID iid_inputsite_old = {0x8ca0442d, 0xae80, 0x47b0, {0xaf, 0x23, 0x81, 0x3f, 0xc1, 0xda, 0x9c, 0xd0}};
 static const GUID iid_inputsite_factory2 = {0x24701c1a, 0x88f5, 0x4598, {0xb3, 0xe4, 0x85, 0x50, 0x85, 0xcf, 0x2e, 0xf1}};
 static const GUID iid_acio_factory = {0x4c8421ca, 0x3863, 0x5236, {0xb0, 0x9a, 0x75, 0x7c, 0xf6, 0x8c, 0x5f, 0xa5}};
 static const GUID iid_site = {0xcfb32fa7, 0x5399, 0x5f3d, {0x82, 0xba, 0x96, 0x41, 0xf1, 0x06, 0xff, 0xcd}};
@@ -131,8 +135,26 @@ static HRESULT WINAPI stub_GetTrustLevel(struct stub *stub, TrustLevel *level)
     return S_OK;
 }
 
+static int give_sink;
+static HANDLE sink;
+static const GUID iid_host_sink = {0x92179cc0, 0xae1f, 0x48bc, {0xa3, 0x54, 0x8f, 0x7a, 0x88, 0x00, 0xf2, 0xfb}};
+static const GUID iid_host_object = {0x01dc794b, 0x4ff5, 0x4491, {0x99, 0x42, 0xb9, 0xe7, 0xb8, 0x89, 0x3b, 0xe4}};
+
 static HRESULT method_called(struct stub *stub, int slot, void *a1, void *a2, void *a3)
 {
+    if (give_sink && slot == 9 && a1 && IsEqualGUID(&stub->iid, &iid_host_sink))
+    {
+        printf("    host: slot 9 of %s called -> the input sink, S_OK\n", guid_str(&stub->iid));
+        *(HANDLE *)a1 = sink;
+        return S_OK;
+    }
+    if (give_sink && slot == 9 && a1 && IsEqualGUID(&stub->iid, &iid_host_object))
+    {
+        printf("    host: slot 9 of %s called -> the host object, S_OK\n", guid_str(&stub->iid));
+        InterlockedIncrement(&host_refs);
+        *(void **)a1 = &stubs[0];
+        return S_OK;
+    }
     printf("    host: slot %d of %s (stub %d) called, arguments %p %p %p -> E_NOTIMPL\n", slot, guid_str(&stub->iid), stub->index, a1, a2, a3);
     return E_NOTIMPL;
 }
@@ -244,6 +266,29 @@ int wmain(int argc, WCHAR **argv)
     SetUnhandledExceptionFilter(crashed);
     init_stubs();
     if (argc > 1 && !wcscmp(argv[1], L"all")) answer_all = 1;
+    else if (argc > 1 && !wcscmp(argv[1], L"sink"))
+    {
+        LONG (NTAPI *create_sink)(const void *block, HANDLE *out);
+        HMODULE win32u = LoadLibraryA("win32u.dll");
+        BYTE block[0xe8];
+        HWND hwnd;
+        LONG status;
+        int e;
+
+        answer_all = give_sink = 1;
+        hwnd = CreateWindowW(L"static", L"inputsite-create-probe", WS_OVERLAPPEDWINDOW, 0, 0, 200, 100, 0, 0, 0, 0);
+        memset(block, 0, sizeof(block));
+        *(ULONG_PTR *)block = sizeof(block);
+        for (e = 0; e < 4; e++)
+        {
+            *(ULONG_PTR *)(block + 8 + e * 0x38) = 2;
+            *(HWND *)(block + 16 + e * 0x38) = hwnd;
+        }
+        create_sink = win32u ? (void *)GetProcAddress(win32u, "NtCreateCompositionInputSink") : NULL;
+        status = create_sink ? create_sink(block, &sink) : -1;
+        printf("window %s, NtCreateCompositionInputSink: %s, status %08lx, sink %s\n", hwnd ? "created" : "FAILED",
+               create_sink ? "exported" : "not exported by win32u.dll", (ULONG)status, sink ? "made" : "none");
+    }
     else if (argc > 1 && wcscmp(argv[1], L"none"))
     {
         WCHAR *tok = _wcsdup(argv[1]), *comma;
@@ -280,6 +325,15 @@ int wmain(int argc, WCHAR **argv)
     hr = factory_of(hs, &iid_inputsite_factory, (void **)&site_factory);
     WindowsDeleteString(hs);
     printf("InputSite factory {73f80911}: %08lx\n", hr);
+    if (hr == E_NOINTERFACE)
+    {
+        /* Windows 10 serves {8ca0442d-...} instead. Its slot 6 is called with the same arguments: a guess from the
+         * newer interface, not a measured shape; the lines that follow say what that call did */
+        WindowsCreateString(site_class, (UINT32)wcslen(site_class), &hs);
+        hr = factory_of(hs, &iid_inputsite_old, (void **)&site_factory);
+        WindowsDeleteString(hs);
+        printf("InputSite factory {8ca0442d}: %08lx (the calls below use this interface)\n", hr);
+    }
     if (FAILED(hr) || !site_factory) return 1;
 
     step = "InputSite factory slot 6 (host, out)";
@@ -295,6 +349,13 @@ int wmain(int argc, WCHAR **argv)
             hr = IUnknown_QueryInterface(unk, &iid_site, (void **)&site_default);
             printf("  site -> IUnknown -> {cfb32fa7}: %08lx%s\n", hr, site_default == site ? " (the pointer the factory returned)" : "");
             IUnknown_Release(unk);
+        }
+        if (!site_default)
+        {
+            /* Windows 10: another default interface; the pointer the factory returned is passed on as it is */
+            site_default = site;
+            IInspectable_AddRef(site_default);
+            printf("  the pointer the factory returned is used as the site\n");
         }
 
         WindowsCreateString(acio_class, (UINT32)wcslen(acio_class), &hs);

@@ -23,7 +23,7 @@ for line in sys.stdin:
     if noise.search(line):
         continue
     line = re.sub(r"0x[0-9a-fA-F]{9,}", "<ADDR>", line)
-    line = re.sub(r"\b[0-9a-fA-F]{9,16}\b", "<ADDR>", line)
+    line = re.sub(r"(?<!-)\b[0-9a-fA-F]{9,16}\b(?!\})", "<ADDR>", line)   # not the last group of a GUID
     line = re.sub(r"(window|hwnd|port|handle|packet)\s+(0x)?[0-9a-fA-F]{4,}", r"\1 <H>", line)
     line = re.sub(r"\+\d+ ?ms", "+<T>ms", line)
     line = re.sub(r"\b(pid|tid|thread)\s+\d+", r"\1 <ID>", line)

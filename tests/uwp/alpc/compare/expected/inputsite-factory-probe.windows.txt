@@ -11,11 +11,11 @@ class Windows.UI.Internal.Input.InputSite
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 3
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {73f80911-7a51-5b0f-906b-<ADDR>} {73f80911} (InputSite factory) qi 00000000
+      iid {73f80911-7a51-5b0f-906b-f6402ea6c3cb} {73f80911} (InputSite factory) qi 00000000
         vtable in inputhost.dll
-      iid {24701c1a-88f5-4598-b3e4-<ADDR>}  qi 00000000
+      iid {24701c1a-88f5-4598-b3e4-855085cf2ef1}  qi 00000000
         vtable in inputhost.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -28,19 +28,19 @@ class Windows.UI.Internal.Input.InputSite
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 80004002
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({73f80911-7a51-5b0f-906b-<ADDR>}): 00000000
+  RoGetActivationFactory({73f80911-7a51-5b0f-906b-f6402ea6c3cb}): 00000000
     requested interface
     vtable in inputhost.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 3
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {73f80911-7a51-5b0f-906b-<ADDR>} {73f80911} (InputSite factory) qi 00000000
+      iid {73f80911-7a51-5b0f-906b-f6402ea6c3cb} {73f80911} (InputSite factory) qi 00000000
         vtable in inputhost.dll
-      iid {24701c1a-88f5-4598-b3e4-<ADDR>}  qi 00000000
+      iid {24701c1a-88f5-4598-b3e4-855085cf2ef1}  qi 00000000
         vtable in inputhost.dll
-  RoGetActivationFactory({8ca0442d-ae80-47b0-af23-<ADDR>}): 80004002
+  RoGetActivationFactory({8ca0442d-ae80-47b0-af23-813fc1da9cd0}): 80004002
 class Windows.UI.Internal.Input.ActivationConfigurationInputObject
   registration DllPath: inputhost.dll
   registration ActivationType: 0
@@ -53,9 +53,9 @@ class Windows.UI.Internal.Input.ActivationConfigurationInputObject
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {4c8421ca-3863-5236-b09a-<ADDR>} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
+      iid {4c8421ca-3863-5236-b09a-757cf68c5fa5} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
         vtable in inputhost.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -68,15 +68,15 @@ class Windows.UI.Internal.Input.ActivationConfigurationInputObject
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 80004002
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({4c8421ca-3863-5236-b09a-<ADDR>}): 00000000
+  RoGetActivationFactory({4c8421ca-3863-5236-b09a-757cf68c5fa5}): 00000000
     requested interface
     vtable in inputhost.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {4c8421ca-3863-5236-b09a-<ADDR>} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
+      iid {4c8421ca-3863-5236-b09a-757cf68c5fa5} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
         vtable in inputhost.dll
 class Windows.System.DispatcherQueue
   registration DllPath: coremessaging.dll
@@ -90,9 +90,9 @@ class Windows.System.DispatcherQueue
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in coremessaging.dll
-      iid {a96d83d7-9371-4517-9245-<ADDR>} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
+      iid {a96d83d7-9371-4517-9245-d0824ac12c74} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
         vtable in coremessaging.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -105,15 +105,15 @@ class Windows.System.DispatcherQueue
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 00000000
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({a96d83d7-9371-4517-9245-<ADDR>}): 00000000
+  RoGetActivationFactory({a96d83d7-9371-4517-9245-d0824ac12c74}): 00000000
     requested interface
     vtable in coremessaging.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in coremessaging.dll
-      iid {a96d83d7-9371-4517-9245-<ADDR>} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
+      iid {a96d83d7-9371-4517-9245-d0824ac12c74} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
         vtable in coremessaging.dll
   inputhost.dll loaded: yes, coremessaging.dll loaded: yes
 == RoInitialize(STA): 00000000
@@ -129,11 +129,11 @@ class Windows.UI.Internal.Input.InputSite
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 3
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {73f80911-7a51-5b0f-906b-<ADDR>} {73f80911} (InputSite factory) qi 00000000
+      iid {73f80911-7a51-5b0f-906b-f6402ea6c3cb} {73f80911} (InputSite factory) qi 00000000
         vtable in inputhost.dll
-      iid {24701c1a-88f5-4598-b3e4-<ADDR>}  qi 00000000
+      iid {24701c1a-88f5-4598-b3e4-855085cf2ef1}  qi 00000000
         vtable in inputhost.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -146,19 +146,19 @@ class Windows.UI.Internal.Input.InputSite
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 80004002
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({73f80911-7a51-5b0f-906b-<ADDR>}): 00000000
+  RoGetActivationFactory({73f80911-7a51-5b0f-906b-f6402ea6c3cb}): 00000000
     requested interface
     vtable in inputhost.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 3
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {73f80911-7a51-5b0f-906b-<ADDR>} {73f80911} (InputSite factory) qi 00000000
+      iid {73f80911-7a51-5b0f-906b-f6402ea6c3cb} {73f80911} (InputSite factory) qi 00000000
         vtable in inputhost.dll
-      iid {24701c1a-88f5-4598-b3e4-<ADDR>}  qi 00000000
+      iid {24701c1a-88f5-4598-b3e4-855085cf2ef1}  qi 00000000
         vtable in inputhost.dll
-  RoGetActivationFactory({8ca0442d-ae80-47b0-af23-<ADDR>}): 80004002
+  RoGetActivationFactory({8ca0442d-ae80-47b0-af23-813fc1da9cd0}): 80004002
 class Windows.UI.Internal.Input.ActivationConfigurationInputObject
   registration DllPath: inputhost.dll
   registration ActivationType: 0
@@ -171,9 +171,9 @@ class Windows.UI.Internal.Input.ActivationConfigurationInputObject
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {4c8421ca-3863-5236-b09a-<ADDR>} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
+      iid {4c8421ca-3863-5236-b09a-757cf68c5fa5} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
         vtable in inputhost.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -186,15 +186,15 @@ class Windows.UI.Internal.Input.ActivationConfigurationInputObject
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 80004002
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({4c8421ca-3863-5236-b09a-<ADDR>}): 00000000
+  RoGetActivationFactory({4c8421ca-3863-5236-b09a-757cf68c5fa5}): 00000000
     requested interface
     vtable in inputhost.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in inputhost.dll
-      iid {4c8421ca-3863-5236-b09a-<ADDR>} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
+      iid {4c8421ca-3863-5236-b09a-757cf68c5fa5} {4c8421ca} (ActivationConfigurationInputObject factory) qi 00000000
         vtable in inputhost.dll
 class Windows.System.DispatcherQueue
   registration DllPath: coremessaging.dll
@@ -208,9 +208,9 @@ class Windows.System.DispatcherQueue
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in coremessaging.dll
-      iid {a96d83d7-9371-4517-9245-<ADDR>} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
+      iid {a96d83d7-9371-4517-9245-d0824ac12c74} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
         vtable in coremessaging.dll
       QueryInterface IActivationFactory: 00000000 (same pointer)
       QueryInterface IAgileObject: 00000000
@@ -223,14 +223,14 @@ class Windows.System.DispatcherQueue
       QueryInterface {a96d83d7} (IDispatcherQueueStatics): 00000000
       QueryInterface {8ca0442d} (old InputSite request): 80004002
     ActivateInstance: 80004001 NULL
-  RoGetActivationFactory({a96d83d7-9371-4517-9245-<ADDR>}): 00000000
+  RoGetActivationFactory({a96d83d7-9371-4517-9245-d0824ac12c74}): 00000000
     requested interface
     vtable in coremessaging.dll
     GetRuntimeClassName: 8000000e "(null)"
     GetTrustLevel: 00000000 0
     GetIids: 00000000 count 2
-      iid {00000035-0000-0000-c000-<ADDR>} IActivationFactory qi 00000000
+      iid {00000035-0000-0000-c000-000000000046} IActivationFactory qi 00000000
         vtable in coremessaging.dll
-      iid {a96d83d7-9371-4517-9245-<ADDR>} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
+      iid {a96d83d7-9371-4517-9245-d0824ac12c74} {a96d83d7} (IDispatcherQueueStatics) qi 00000000
         vtable in coremessaging.dll
   inputhost.dll loaded: yes, coremessaging.dll loaded: yes

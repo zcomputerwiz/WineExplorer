@@ -5,21 +5,25 @@ Copyright 2026 WineExplorer contributors
 # Design note: the input-site classes for Notepad (Windows App SDK), 2026-11-26
 
 Read with [HANDOFF_NOTEPAD.md](HANDOFF_NOTEPAD.md) (wall 1 and target 2 of the ranked list). This note records what was
-measured on Windows 11 (build 26300), what follows for Wine, and what is still unknown. Nothing is implemented in Wine yet;
-the reason is in "What Wine will be asked" below.
+measured on Windows 11 (build 26300) and Windows 10 (build 19045, the lab machine), what follows for Wine, and what is
+still unknown. Nothing is implemented in Wine yet.
 
 ## Summary
 
-* On Windows 11 the two classes live in `InputHost.dll`. Their caller is not the application but the system's own
+* On Windows 11 the two classes live in `InputHost.dll`. Their caller there is not the application but the system's own
   `Microsoft.Internal.FrameworkUdk.System.dll`. Wine has neither library, so under Wine the application's own
-  `Microsoft.Internal.FrameworkUdk.dll` asks instead, and it asks for another interface (`{8ca0442d-...}`), which this
-  Windows build refuses. **The interface Wine must answer cannot be measured on this host.**
-* The surface the caller uses is small: one creation method per class and two calls on the configuration object. The work
-  is in what the site does afterwards: it takes the caller's composition input sink and has to deliver input through it.
-* `Windows.System.DispatcherQueue` is asked for by `InputHost.dll` itself, not by Notepad. A Wine implementation of the
-  input site does not need it. Wine's `coremessaging` does not serve that class (it has `DispatcherQueueController` only).
-* Next step: run Notepad under Wine with the logging stand-in (`tests/uwp/alpc/inputhost-logstub.c`) once the
-  CoreMessaging rounds run, to read the calls the application makes on `{8ca0442d}` from our side.
+  `Microsoft.Internal.FrameworkUdk.dll` asks instead, for another interface (`{8ca0442d-...}`). Windows 11 refuses that
+  interface; **Windows 10 serves it** (and refuses Windows 11's). Windows 10 has no system copy of the component either, so
+  it is the reference for Wine's path.
+* The creation call has the same shape on both: slot 6 of the factory interface, `(host, out site)`. The site asks the
+  host for its composition input sink. With a host of our own that hands out a real sink, a site and a configuration
+  object are created on both systems (`inputsite-create-probe.exe sink`), so a Wine test can cover creation on Windows.
+* The surface the caller uses at start-up is small: one creation method per class and two calls on the configuration
+  object. The work is in what the site does afterwards: it has to deliver input for the sink's windows.
+* `Windows.System.DispatcherQueue` is asked for by `InputHost.dll` itself (Windows 11), not by Notepad. A Wine
+  implementation of the input site does not need it. Wine's `coremessaging` does not serve that class.
+* Next step: the Wine module with the Windows 10 interface ids (below), and a run of Notepad in the lab, with the logging
+  stand-in (`tests/uwp/alpc/inputhost-logstub.c`) for any call that is not covered yet.
 
 ## Rules followed
 
@@ -72,31 +76,58 @@ During step 1, `InputHost.dll` calls the host object:
   It is the composition input sink that the same thread made earlier with `NtCreateCompositionInputSink`: the three
   values match the three sinks in order (trace with both calls).
 
-With a host of our own (`inputsite-create-probe.exe none` and `all`) the system ends the process with a fail fast
-(`0xc0000409`) as soon as the host refuses `{01dc794b}` or one of the two slot 9 calls fails. A site cannot be made
-without a caller that implements both interfaces, so a conformance test on Windows can cover the factories but not a site.
+With a host of our own that refuses (`inputsite-create-probe.exe none` and `all`) the system ends the process with a fail
+fast (`0xc0000409`) as soon as a question is refused or its slot 9 call fails. With a host that answers them
+(`inputsite-create-probe.exe sink`: a sink made by this program for a window of its own, and the host object itself for
+the object question) the whole sequence succeeds; results in `compare/expected/inputsite-create-probe-sink.windows11.txt`:
+
+* the site: class name `Windows.UI.Internal.Input.InputSite`, `GetIids` `{cfb32fa7-5399-5f3d-82ba-9641f106ffcd}` (default),
+  `{48c0724a-1768-406a-bb9f-a9e99a2016ba}`, `{2cc67fbf-f13c-42fd-a89c-48ab226b12b8}`,
+  `{46cae093-bf9a-4b61-970f-8d9cfaff944e}`, `IClosable`; `IAgileObject` yes, `IMarshal` and weak references no;
+* the configuration object: class name `...ActivationConfigurationInputObject`, `GetIids`
+  `{773ebb88-99de-4a39-b9fa-02adaec25d4d}` (default), `{9b822734-a3c1-542a-b2f4-0e32b773fb07}`,
+  `{29500e25-06ae-536c-af23-47682f700580}`, `{46cae093-...}`, `IClosable`; slots 7 and 9 with 0 return `S_OK`.
+
+## Measured on Windows 10 (build 19045.6456, the lab machine; the reference for Wine)
+
+The factory probe and the create probe, run through guest control (the probes are in `C:\Users\lab\probes`; nothing else
+in the guest was changed). Results: `compare/expected/inputsite-factory-probe.windows10.txt` and
+`inputsite-create-probe-sink.windows10.txt`.
+
+* `InputSite` factory (`inputhost.dll`): `GetIids` gives `IActivationFactory` and
+  `{8ca0442d-ae80-47b0-af23-813fc1da9cd0}`; `{73f80911}` is refused. The reverse of Windows 11.
+  `ActivationConfigurationInputObject` (`{4c8421ca}`) and `Windows.System.DispatcherQueue` are as on Windows 11.
+* Slot 6 of `{8ca0442d}` takes the same arguments, `(host, out site)`. This shape was tried, not traced: the call works and
+  asks the host exactly one question, `QueryInterface({92179cc0-ae1f-48bc-a354-8f7a8800f2fb})` and its slot 9 (the input
+  sink). There is no `{01dc794b}` question on Windows 10. A host that refuses ends the process, as on Windows 11.
+* The site: class name `Windows.UI.Internal.Input.InputSite`, `GetIids` `{f77d91d0-46ca-4464-99c1-8902aed17680}` (default,
+  the pointer the factory returns), `{e6414e4b-1385-554a-b430-ca796b7305f2}`, `{2cc67fbf-f13c-42fd-a89c-48ab226b12b8}`,
+  `{46cae093-bf9a-4b61-970f-8d9cfaff944e}`, `IClosable`; `IAgileObject` yes, `IMarshal` and weak references no.
+* Slot 6 of `{4c8421ca}` with that site gives a configuration object: `GetIids` `{773ebb88-...}` (default, the same id as
+  on Windows 11), `{9b822734-...}`, `{69741938-9de5-57b6-98e7-8895bf9eb420}`, `{29500e25-...}`,
+  `{6852a9f9-70a7-5cd1-8b14-eedc412eb722}`, `{46cae093-...}`, `IClosable`. Slots 7 and 9 with 0 return `S_OK`.
+* The same with a dispatcher queue on the thread (`sink dq`) and a message loop of two seconds: no call on the host.
+
+Not measured on Windows 10: what an application's own caller does after creation (the lab user has no Windows App
+Runtime package there; installing a test application needs the orchestrator's agreement, the machine is read-only so far).
 
 ## What Wine will be asked
 
 Under Wine the caller is the application's own copy of the component, and the earlier lab runs show its request:
-`InputSite` with `{8ca0442d-ae80-47b0-af23-813fc1da9cd0}` (HANDOFF, wall 1). Windows 11 build 26300 refuses that interface,
-so its methods, the interfaces of the site it expects and what that caller's host object offers are not measurable here.
-Whether the Windows 10 lab machine has these classes at all is not known: it could not be asked this time (guest control
-did not start a session, as on 2026-11-25; the machine was left as it was).
+`InputSite` with `{8ca0442d-ae80-47b0-af23-813fc1da9cd0}` (HANDOFF, wall 1). That is the Windows 10 interface above, so
+Wine should behave as Windows 10 does: serve `{8ca0442d}`, refuse `{73f80911}`, and ask the host for its sink through
+`{92179cc0}` slot 9.
 
-Two ways to find out, in order of cost:
+What that caller does with the site afterwards is still open. Two ways to find out, in order of cost:
 
-1. **From our side under Wine (preferred).** `inputhost-logstub.dll` in the lab prefix answers every activation and
-   `QueryInterface` and logs each call with its arguments; `INPUTHOST_STUB_PLAN` sets what a call returns, one step at a
-   time, without a rebuild (first run: which slot of `{8ca0442d}` is called and with what; then hand out a logging site;
-   then see what is asked of the site). It was tried on the host with the calls of the Windows 11 caller
+1. **From our side under Wine (preferred).** The Wine module logs unknown `QueryInterface` requests as every Wine module
+   does; for method calls on interfaces whose shape is not known, `inputhost-logstub.dll` in the lab prefix answers every
+   activation and `QueryInterface` and logs each call with its arguments, and `INPUTHOST_STUB_PLAN` sets what a call
+   returns, one step at a time, without a rebuild. It was tried on the host with the calls of the Windows 11 caller
    (`inputsite-create-probe.exe all sta PATH\inputhost-logstub.dll`). 64-bit only. It needs the CoreMessaging rounds to
    run first, or the earlier lab state in which the input thread reached this request.
-2. **A Windows 11 release without the system component** (an evaluation image in a new lab machine), to trace the same
-   application there with `wintrace` and `_O`/`_I`. Only worth it if step 1 leaves the meaning of a call open.
-
-The Windows 11 measurements above are the best guide to the shape meanwhile: the older interface most likely has the same
-creation call, a host with the same two questions (an object, the input sink handle) under older interface ids.
+2. **A small Windows App SDK test application on the Windows 10 lab machine**, traced with `wintrace` and `_O`/`_I`
+   (the calls of the application's own caller on the real site). Needs the orchestrator's agreement to install it there.
 
 ## Design for Wine
 
@@ -107,42 +138,47 @@ which those do not. New files LGPL-2.1-or-later, "Copyright 2026 WineExplorer co
 of our own in a module-local IDL with the measured interface ids; both architectures; arguments checked;
 [STOCK_CHANGES](../STOCK_CHANGES.md) entry.
 
-**Minimum interface set** (to be confirmed by step 1 above for the interface ids the application's own caller uses):
+**Minimum interface set** (the Windows 10 ids):
 
-* `InputSite` factory: `IActivationFactory` (`ActivateInstance`: `E_NOTIMPL`), `IAgileObject`, and the creation
-  interface the caller asks for, with one method `(host, out site)`.
-* The site: `IInspectable`, its default interface (`{cfb32fa7}` on this Windows build; methods unknown, none called at
-  start-up), `IAgileObject`.
-* `ActivationConfigurationInputObject` factory: `IActivationFactory`, `IAgileObject`, a creation interface with one
+* `InputSite` factory: `IActivationFactory` (`ActivateInstance`: `E_NOTIMPL`), `IAgileObject`, `IMarshal`, and
+  `{8ca0442d}` with one method `(host, out site)`; `GetIids` as measured; `{73f80911}` refused.
+* The site: runtime class name, `GetIids` as on Windows 10 (`{f77d91d0}` default, `{e6414e4b}`, `{2cc67fbf}`,
+  `{46cae093}`, `IClosable`), `IAgileObject`. The methods of the four private interfaces are unknown; they start as
+  slots that log and fail, and get filled in as the lab run shows which are called.
+* `ActivationConfigurationInputObject` factory: `IActivationFactory`, `IAgileObject`, `IMarshal`, `{4c8421ca}` with one
   method `(site, out object)`.
-* The configuration object: an interface with four methods, of which two are called with 0 at start-up and must succeed.
+* The configuration object: runtime class name, default interface `{773ebb88}` with four methods (slots 6 to 9), of
+  which 7 and 9 are called with 0 at start-up and must succeed; the other listed interfaces as for the site.
 
 **What the objects must do.**
 
-* The site keeps a reference to the host and reads the input sink handle from it (the second question above). The sink is
-  Wine's own object (`NtCreateCompositionInputSink` in win32u, with the windows it names), so the site can find the
-  input window and the application window from the handle. That lookup needs a win32u entry point that does not exist yet
-  (sink to windows); it would be a second stock change.
-* Input for those windows has to reach the application through the object the host hands out (the first question). Which
-  methods of it carry pointer, key and focus events is unknown: nothing calls it while no input arrives. This is the part
-  to measure next on Windows with input sent to Notepad (a trace with `_I` and `WINTRACE_FOLLOW` naming the caller's
-  module, while keys and pointer moves are sent to the window), and under Wine by seeing what the application does when
-  the site calls nothing.
+* The site keeps a reference to the host and reads the input sink handle from it (`{92179cc0}` slot 9); creation fails
+  when the host refuses. The sink is Wine's own object (`NtCreateCompositionInputSink` in win32u, with the windows it
+  names), so the site can find the input window and the application window from the handle. That lookup needs a win32u
+  entry point that does not exist yet (sink to windows); it would be a second stock change, needed only once the site
+  delivers input.
+* How input for those windows reaches the application is unknown (unknown 3 below). On Windows 11 the host also hands out
+  an object, which nothing calls while no input arrives; on Windows 10 there is no such object. This is the part to
+  measure next: on Windows with input sent to the window while tracing with `_O`/`_I`, and under Wine by seeing what the
+  application asks of the site.
 * The configuration object's two calls can be stored and otherwise ignored until their meaning is known.
 * First goal: creation succeeds and the page load that follows on Windows (47 ms after the first activation) starts.
   Input delivery through the site comes second; the lab drives Notepad with window messages today.
 
-**Test.** A Wine test for the factories as in the golden file (registration, `GetIids`, `ActivateInstance`,
-`GetRuntimeClassName`), identical on Windows. Site creation cannot be tested on Windows without a full host (fail fast), so
-it gets a Wine-only test with a host of the test's own, marked as such.
+**Test.** A Wine test with a host of the test's own that hands out a sink made with `NtCreateCompositionInputSink` for a
+window of the test, as `inputsite-create-probe.exe sink` does: factories (registration, `GetIids`, `ActivateInstance`,
+`GetRuntimeClassName`), site creation, the site's and the configuration object's class names and interface lists, slots 7
+and 9. It passes on Windows 10 as it stands; on Windows 11 the factory interface and two interface ids differ, so the test
+takes either set there (the Windows 10 set is what Wine implements).
 
 ## Still unknown
 
-1. The methods of `{8ca0442d}` and the interfaces the application's own caller expects of the site and offers on its host
-   (step 1 above).
-2. The methods of the site's default interface and of `{24701c1a}`; the names and types of the configuration object's four
-   methods.
-3. How input reaches the caller: the methods of the object from `{01dc794b}` slot 9, and what the site does with the sink.
+1. What the application's own caller does with the site after creation: which interfaces it asks for and which methods it
+   calls (the lab run, or a test application on Windows 10).
+2. The methods of the site's interfaces (`{f77d91d0}`, `{e6414e4b}`, `{2cc67fbf}`, `{46cae093}`), of `{24701c1a}` on the
+   Windows 11 factory, and the names and types of the configuration object's four methods and of its other interfaces.
+3. How input reaches the caller. On Windows 10 the host is asked for nothing but the sink, so input most likely arrives
+   through the sink's windows or through handlers that the caller registers on the site; neither was seen yet.
 4. Whether the application's own caller also creates the configuration object, and whether it needs
    `Windows.System.DispatcherQueue` from Wine (on Windows the request comes from inside `InputHost.dll`). If it does:
    `IDispatcherQueueStatics::GetForCurrentThread` is public and missing in Wine's `coremessaging`.
@@ -152,7 +188,9 @@ it gets a Wine-only test with a host of the test's own, marked as such.
 
 * `tests/uwp/alpc/inputsite-factory-probe.c`: the factories; in `compare/probes.txt` with its Windows golden file, so the
   comparison runner will show the Wine side once a module exists.
-* `tests/uwp/alpc/inputsite-create-probe.c`: the creation calls with a logging host; also drives the stand-in.
+* `tests/uwp/alpc/inputsite-create-probe.c`: the creation calls with a logging host (`none`, `all`, `sink`); also drives
+  the stand-in. Outputs of `sink` on both systems are in `compare/expected/`.
+* `tests/uwp/alpc/compare/normalize.py`: the last group of a GUID is no longer taken for an address.
 * `tests/uwp/alpc/inputhost-logstub.c`, `.def`: the logging stand-in for the lab prefix (header: how to install and steer).
 * `tests/uwp/alpc/wintrace.c`: `_O`, `_I`, `_G`, `_T`, `WINTRACE_FOLLOW`, `WINTRACE_SKIP_MISSING`; `winrt!` targets check
   that a slot leads to code and count only objects of that vtable.

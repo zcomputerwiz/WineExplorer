@@ -1,0 +1,53 @@
+window created, NtCreateCompositionInputSink: exported, status 00000000, sink made
+inputsite-create-probe: host answers sink, thread sta
+RoInitialize: 00000000
+InputSite factory {73f80911}: 80004002
+InputSite factory {8ca0442d}: 00000000 (the calls below use this interface)
+    host: QueryInterface({92179cc0-ae1f-48bc-a354-8f7a8800f2fb}) on stub 0 -> S_OK
+    host: slot 9 of {92179cc0-ae1f-48bc-a354-8f7a8800f2fb} called -> the input sink, S_OK
+InputSite factory slot 6 (host, out): 00000000, site returned
+  site:
+    GetRuntimeClassName: 00000000 "Windows.UI.Internal.Input.InputSite"
+    GetTrustLevel: 00000000 0
+    GetIids: 00000000 count 7
+      iid {f77d91d0-46ca-4464-99c1-8902aed17680}, QueryInterface 00000000 (this pointer)
+      iid {e6414e4b-1385-554a-b430-ca796b7305f2}, QueryInterface 00000000
+      iid {2cc67fbf-f13c-42fd-a89c-48ab226b12b8}, QueryInterface 00000000
+      iid {46cae093-bf9a-4b61-970f-8d9cfaff944e}, QueryInterface 00000000
+      iid {30d5a829-7fa4-4026-83bb-d75bae4ea99e}, QueryInterface 00000000
+      iid {00000000-0000-0000-c000-000000000046}, QueryInterface 00000000
+      iid {af86e2e0-b12d-4c6a-9c5a-d7aa65101e90}, QueryInterface 00000000
+    QueryInterface IAgileObject: 00000000
+    QueryInterface IMarshal: 80004002
+    QueryInterface IWeakReferenceSource: 80004002
+    QueryInterface {cfb32fa7} (asked of the site by the application): 80004002
+    QueryInterface {92179cc0-ae1f-48bc-a354-8f7a8800f2fb} (asked of the host): 80004002
+  site -> IUnknown -> {cfb32fa7}: 80004002
+  the pointer the factory returned is used as the site
+ActivationConfigurationInputObject factory {4c8421ca}: 00000000
+ActivationConfigurationInputObject factory slot 6 (site, out): 00000000, object returned
+  configuration object:
+    GetRuntimeClassName: 00000000 "Windows.UI.Internal.Input.ActivationConfigurationInputObject"
+    GetTrustLevel: 00000000 0
+    GetIids: 00000000 count 9
+      iid {773ebb88-99de-4a39-b9fa-02adaec25d4d}, QueryInterface 00000000 (this pointer)
+      iid {9b822734-a3c1-542a-b2f4-0e32b773fb07}, QueryInterface 00000000
+      iid {69741938-9de5-57b6-98e7-8895bf9eb420}, QueryInterface 00000000
+      iid {29500e25-06ae-536c-af23-47682f700580}, QueryInterface 00000000
+      iid {6852a9f9-70a7-5cd1-8b14-eedc412eb722}, QueryInterface 00000000
+      iid {46cae093-bf9a-4b61-970f-8d9cfaff944e}, QueryInterface 00000000
+      iid {30d5a829-7fa4-4026-83bb-d75bae4ea99e}, QueryInterface 00000000
+      iid {00000000-0000-0000-c000-000000000046}, QueryInterface 00000000
+      iid {af86e2e0-b12d-4c6a-9c5a-d7aa65101e90}, QueryInterface 00000000
+    QueryInterface IAgileObject: 00000000
+    QueryInterface IMarshal: 80004002
+    QueryInterface IWeakReferenceSource: 80004002
+    QueryInterface {cfb32fa7} (asked of the site by the application): 80004002
+    QueryInterface {92179cc0-ae1f-48bc-a354-8f7a8800f2fb} (asked of the host): 80004002
+  configuration object slot 7 (0): 00000000
+  configuration object slot 9 (0): 00000000
+configuration object Release: 1
+site Release: 2
+host references left: 1, interface ids asked of the host: 1
+  {92179cc0-ae1f-48bc-a354-8f7a8800f2fb}
+done
