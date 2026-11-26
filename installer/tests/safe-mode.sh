@@ -730,14 +730,14 @@ window_gone() {   # window_gone REGEX TIMEOUT: no viewable window's title matche
 
 desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (default the test account): its desktop
               # view and its taskbar are up (window probe); "Recycle Bin" by OCR on an image without xwininfo
-    local user=${2:-$USER_NAME} start=$SECONDS end=$((SECONDS + $1)) left out=
+    local user=${2:-$USER_NAME} DESKTOP_TEXT=${DESKTOP_TEXT:-Recycle Bin} start=$SECONDS end=$((SECONDS + $1)) left out=
     # first the serial console, with short calls (vmtest.py sends nothing until the getty's prompt shows); a long
     # probe sent while the machine starts would wait behind the login. A console that gives no prompt for a minute
     # (B78: silent after a warm reboot) does not fail the stage: the desktop is then looked for by OCR, as before the
     # window probes, and the log says so.
     while [ "$SECONDS" -lt "$end" ]; do
         gsh 'echo serial=up' 20 2>/dev/null | grep -q '^serial=up' && break
-        if [ $((SECONDS - start)) -ge 60 ] && wait_text "Recycle Bin" 5; then
+        if [ $((SECONDS - start)) -ge 60 ] && wait_text "$DESKTOP_TEXT" 5; then
             echo "  (the serial console gave no prompt for $((SECONDS - start)) seconds: the desktop found by OCR, not by the window probe)"
             shot desktop
             return 0
@@ -749,13 +749,13 @@ desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (
         case "$out" in
             *desktop=ready*) echo "  $(grep -m1 -o 'desktop=ready.*' <<< "$out")"; shot desktop; return 0 ;;
             *probe=unavailable*)
-                wait_text "Recycle Bin" "$((end - SECONDS))" || fail "no Explorer desktop (OCR)"
+                wait_text "$DESKTOP_TEXT" "$((end - SECONDS))" || fail "no Explorer desktop (OCR)"
                 shot desktop
                 return 0 ;;
             *desktop=none*) break ;;
         esac
         # no answer on the serial console: still starting, or gone silent (B78); OCR meanwhile
-        if wait_text "Recycle Bin" 5; then
+        if wait_text "$DESKTOP_TEXT" 5; then
             echo "  (no answer from the window probe over the serial console: the desktop found by OCR)"
             shot desktop
             return 0
@@ -1490,6 +1490,8 @@ phase_waylandshellrestart() {   # see the header: Notepad survives the shell's r
     "${V[@]}" type "$TEST" "notepad"
     "${V[@]}" key "$TEST" ret >/dev/null
     wait_text "Untitled - Notepad" 60 || { shot no-notepad; fail "Notepad did not open"; }
+    # Notepad covers the desktop icons (Recycle Bin): from here the desktop is looked for by the taskbar's Start button
+    DESKTOP_TEXT=start
     old=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /shell" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
     [ -n "$old" ] || fail "no explorer of $USER_NAME to kill"
     gsh 'pkill -9 -u "$USER" -f "C:.windows.system32.explorer.exe /shell"; true' >/dev/null
@@ -2685,7 +2687,7 @@ for PHASE in "${PHASES[@]}"; do
         echo "  startrec stopped before putting its settings back: put back on the stopped disk"
     fi
     # a phase that saved the test account's session and failed before putting it back
-    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback|waylandxlock) saved_session restore || die "cannot put the saved session back" ;; esac
+    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback|waylandxlock|waylandshellrestart) saved_session restore || die "cannot put the saved session back" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in
