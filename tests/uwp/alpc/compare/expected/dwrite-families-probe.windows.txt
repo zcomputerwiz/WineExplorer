@@ -1,0 +1,33 @@
+DWriteCreateFactory: ok
+GetSystemFontCollection: ok
+Consolas               collection yes, GDI interop yes
+Calibri                collection yes, GDI interop yes
+Cambria                collection yes, GDI interop yes
+Segoe UI               collection yes, GDI interop yes
+Segoe UI Variable      collection NO, GDI interop no
+Segoe UI Symbol        collection yes, GDI interop yes
+Segoe UI Emoji         collection yes, GDI interop yes
+Segoe MDL2 Assets      collection yes, GDI interop yes
+Segoe Fluent Icons     collection yes, GDI interop yes
+Arial                  collection yes, GDI interop yes
+Times New Roman        collection yes, GDI interop yes
+Courier New            collection yes, GDI interop yes
+Tahoma                 collection yes, GDI interop yes
+Verdana                collection yes, GDI interop yes
+Georgia                collection yes, GDI interop yes
+Lucida Console         collection yes, GDI interop yes
+Cascadia Mono          collection yes, GDI interop yes
+Cascadia Code          collection yes, GDI interop yes
+Microsoft Sans Serif   collection yes, GDI interop yes
+MS Shell Dlg           collection NO, GDI interop no
+Marlett                collection yes, GDI interop yes
+Webdings               collection yes, GDI interop yes
+Wingdings              collection yes, GDI interop yes
+Symbol                 collection yes, GDI interop yes
+Malgun Gothic          collection yes, GDI interop yes
+Microsoft YaHei        collection yes, GDI interop yes
+Yu Gothic UI           collection yes, GDI interop yes
+SimSun                 collection yes, GDI interop yes
+Nirmala UI             collection yes, GDI interop yes
+Gadugi                 collection yes, GDI interop yes
+

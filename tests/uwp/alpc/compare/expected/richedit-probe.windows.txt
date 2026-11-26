@@ -1,0 +1,60 @@
+LoadLibrary(package riched20): ok
+class RichEditD2DPT: registered, style 0x4088, extra 8
+CreateWindow(RichEditD2DPT): ok
+IsWindowUnicode 1, GetClassName RichEditD2DPT
+EM_GETTEXTMODE: 0x29
+EM_SETEVENTMASK returns 0, EM_GETEVENTMASK 0x80003
+EM_SETBKGNDCOLOR returns 0xffffff
+EM_GETCHARFORMAT(default): mask 0xffffffff effects 0x44000000 height 195 face "Calibri" weight 0
+EM_SETCHARFORMAT(all) returns 0x1
+after: height 320 face "Consolas" color 0xffffff
+EM_SETUNDOLIMIT(100) returns 0x64
+EM_GETZOOM: 0x1 0/0
+EM_SETZOOM(3,2): 0x1
+zoom now 3/2
+EM_SETEDITSTYLE(0xe14018): 0xe04018
+EM_SETTYPOGRAPHYOPTIONS: 0x1
+EM_GETTYPOGRAPHYOPTIONS: 0x3001
+EM_GETOLEINTERFACE: ok
+EM_AUTOURLDETECT(0): 0
+EM_SETWORDWRAPMODE: 0
+EM_SHOWSCROLLBAR(vert): 0
+EM_GETRECT: 1,0-779,560
+after EM_SETRECT: 8,4-700,500
+initial                                      len 0 text ""
+EM_GETMODIFY initially 0
+WM_SETTEXT returns 1
+after WM_SETTEXT                             len 21 text "Hello\r\nworld \u00e9\u4e2d\ud83d\ude00 end"
+EM_GETTEXTLENGTHEX(default): 20, (numchars): 20, (numbytes): 40
+WM_GETTEXTLENGTH 21, EM_GETLINECOUNT 2, EM_LINELENGTH(0) 5, EM_LINEINDEX(1) 6
+EM_GETMODIFY after set 0
+EM_GETMODIFY after reset 0
+EM_SETSEL(2,7) returns 7; EM_GETSEL 2..7; EM_EXGETSEL 2..7
+EM_GETSELTEXT: 5 "llo
+w"
+EM_GETTEXTRANGE(0,5): 5 "Hello"
+after EM_REPLACESEL                          len 17 text "HeXYorld \u00e9\u4e2d\ud83d\ude00 end"
+EM_CANUNDO 0, EM_UNDO 1, after undo                                   len 21 text "Hello\r\nworld \u00e9\u4e2d\ud83d\ude00 end"
+EM_CANREDO 0, EM_REDO 1, after redo                                   len 17 text "HeXYorld \u00e9\u4e2d\ud83d\ude00 end"
+EM_EXLINEFROMCHAR(8) 0, EM_LINEFROMCHAR(8) 0
+EM_GETLINE(0): 17 "HeXYorld ?"
+EM_FINDTEXTEXW("world"): -1 (-1..-1)
+EM_SETTEXTEX(ST_DEFAULT): 1; text                                         len 21 text "one\r\ntwo\r\nthree\r\nfour"
+lines 4
+EM_GETTEXTEX(GT_USECRLF): 21 one\r\ntwo\r\nthree\r\nfour
+after WM_CLEAR of all                        len 0 text ""
+after WM_CHAR a B U+4E2D Enter z             len 4 text "aB\u4e2dz"
+EM_GETLINECOUNT 1
+after backspace                              len 3 text "aB\u4e2d"
+private message 0x53b (wp 1, lp 0) returns 0
+private message 0x540 (wp 1, lp 0) returns 0
+private message 0x58d (wp 1, lp 0) returns 0
+private message 0x596 (wp 1, lp 0) returns 0
+private message 0x597 (wp 1, lp 0) returns 1
+private message 0x598 (wp 1, lp 0) returns 1
+private message 0x5a0 (wp 1, lp 0) returns 1
+private message 0x150c (wp 1, lp 0) returns 1
+private message 0x150d (wp 1, lp 0) returns 1
+EM_GETLANGOPTIONS 0x192, EM_SETLANGOPTIONS 1
+done
+

@@ -12,6 +12,10 @@
     {"ms_font": "Marlett", "ms_files": [], "replacement": "Marlett", "kind": "builtin", "license": "LGPL (Wine)", "source": "wine/fonts/marlett.sfd", "notes": "caption and menu glyphs"},
     {"ms_font": "Segoe UI", "ms_files": [], "replacement": "Selawik", "kind": "metric", "license": "MIT", "package": "none (github.com/microsoft/Selawik)", "notes": "Longhorn-era UI font; not in Debian, install manually when needed"},
     {"ms_font": "Calibri", "ms_files": [], "replacement": "Carlito", "kind": "metric", "license": "SIL OFL 1.1", "package": "fonts-crosextra-carlito"},
-    {"ms_font": "Cambria", "ms_files": [], "replacement": "Caladea", "kind": "metric", "license": "Apache 2.0", "package": "fonts-crosextra-caladea"}
+    {"ms_font": "Cambria", "ms_files": [], "replacement": "Caladea", "kind": "metric", "license": "Apache 2.0", "package": "fonts-crosextra-caladea"},
+    {"ms_font": "Consolas", "ms_files": [], "replacement": "Liberation Mono", "kind": "approx", "license": "SIL OFL 1.1", "package": "fonts-liberation", "notes": "Notepad's default text font. The native RichEdit that Notepad ships lays out nothing (no lines, no selection, no caret) when DirectWrite does not know the family, so the name must resolve; widths differ (0.55 em against 0.6 em)"},
+    {"ms_font": "Cascadia Mono", "ms_files": [], "replacement": "Liberation Mono", "kind": "approx", "license": "SIL OFL 1.1", "package": "fonts-liberation", "notes": "fallback only: the real Cascadia fonts are SIL OFL (Debian fonts-cascadia-code) and win when installed, because a name that is installed is never replaced"},
+    {"ms_font": "Cascadia Code", "ms_files": [], "replacement": "Liberation Mono", "kind": "approx", "license": "SIL OFL 1.1", "package": "fonts-liberation", "notes": "as Cascadia Mono"},
+    {"ms_font": "Georgia", "ms_files": [], "replacement": "DejaVu Serif", "kind": "approx", "license": "Bitstream Vera / public domain changes", "package": "fonts-dejavu-core"}
   ]
 }

@@ -22,6 +22,7 @@ param(
     [switch]$UseGolden,
     [switch]$UpdateGolden,
     [switch]$HostOnly,
+    [string]$WineEnv = '',   # e.g. 'WINEDLLOVERRIDES=riched20=n': environment for the probe under Wine
     [string]$LabSh = (Join-Path $PSScriptRoot '..\..\..\..\scripts\lab\uwp\lab.sh'),
     [string]$Bash = 'C:\Program Files\Git\bin\bash.exe'
 )
@@ -81,7 +82,7 @@ foreach ($p in $probes) {
     & $Bash $LabSh push "$name.exe" | Out-Null
     & $Bash $LabSh push 'wine-run.sh' | Out-Null
     $wo = Join-Path $out "$name.wine.raw"
-    $cmd = "bash /home/debian/uwp-u1-20261111/claude/wine-run.sh $name.exe $($p.Timeout)"
+    $cmd = "$WineEnv bash /home/debian/uwp-u1-20261111/claude/wine-run.sh $name.exe $($p.Timeout)"
     & $Bash $LabSh wait $cmd ($p.Timeout + 60) 2>&1 | Out-File $wo -Encoding ascii
     $wine = (Normalize (Get-Content $wo -Raw) $p.Extra) -join "`n"; $wine += "`n"
     [IO.File]::WriteAllText((Join-Path $out "$name.wine.txt"), $wine)

@@ -170,6 +170,24 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        classes `Windows.UI.Internal.Input.InputSite`, `ActivationConfigurationInputObject`, `Windows.System.DispatcherQueue` (three times)
        and `Windows.Globalization.Spelling.Internal.Facility`. The edit thread's RichEdit is Wine's, which never asks for them: they are
        the next candidates (the Windows RichEdit starts its text input services there, then the UI thread's first layout pass runs).
+     - **Notepad's RichEdit (2026-11-26; `tests/uwp/alpc/richedit-probe.c`, `dwrite-families-probe.c`, both in the comparison runner).**
+       * The control is not Wine's: the package ships **its own `riched20.dll` (16.0.20330, with `msptls.dll`)** that registers
+         `RichEditD2DPT`; Windows loads it from the package directory because riched20 is not a KnownDLL. Wine's builtin riched20
+         (5.x look-alike) has no such class. Without a `riched20=native` override Wine loads the *builtin* under the package path
+         ("Notepad\riched20.dll builtin"), `CreateWindowExW("RichEditD2DPT")` fails and Notepad ends in `terminate()` (probe:
+         "class RichEditD2DPT: not registered"). The lab sets the override by hand (`ovr13g.sh riched20`); **a packaged process needs
+         a loader rule, not a per-run switch: a DLL that sits in the package directory and is not a KnownDLL wins over a builtin of the
+         same name.** Not done yet (the activation code is the test scripts, there is no product launcher to put it in).
+       * Run natively under Wine the control behaves as on Windows 11 for the messages Notepad sends (text, selection, undo, zoom,
+         char formats, 0x5fc-era private messages: same results) **if DirectWrite knows the face**. With Notepad's default face
+         `Consolas` unknown, DirectWrite finds no family and the control lays out nothing: `EM_GETLINECOUNT` 0, `EM_LINEINDEX` -1,
+         `EM_SETSEL(2,7)` gives selection 0..0, typed characters append at the start, no caret. The project's font mapping
+         (`assets/font_substitutes.json`) had no Consolas (nor Cascadia, Georgia); added (Consolas, Cascadia Mono/Code ->
+         Liberation Mono, Georgia -> DejaVu Serif). With it the probe matches Windows. Wine's dwrite only honours the `Replacements` key
+         for names that are not installed, as designed (STOCK_CHANGES, B16). Carlito/Caladea must be installed for Calibri/Cambria (the
+         lab has no Carlito: the control's own default face is Calibri).
+       * That did not move Notepad (b28 run: still one clock call, no surfaces, no caret, no 0x5fc post): the layout is a prerequisite
+         for the caret, not the cause of the UI thread's missing second batch.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
