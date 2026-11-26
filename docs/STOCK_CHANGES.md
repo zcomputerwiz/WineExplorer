@@ -47,6 +47,15 @@
 * Test: `dlls/user32/tests/msg.c` (`test_IsGUIThread`): main thread TRUE; a new thread FALSE twice, then TRUE after PeekMessage, or
   after `IsGUIThread(TRUE)`. Wine lab, x86_64 and i386: the new checks pass; the msg test's other 188 failures (focus, PrintWindow,
   window regions under Xvfb) are the same with and without the change.
+* Follow-up (Wine branch `claude/isguithread-win32k` 46da8d46, 2026-11-27): Windows converts on the first win32k call of any kind
+  (probe: RegisterClassW, GetClassInfoExW, CreateCompatibleDC, LoadCursorW, SystemParametersInfoW, GetKeyState and more all give 1).
+  `dlls/win32u/sysparams.c` `set_gui_thread()`, called at the start of `NtUserRegisterClassExWOW`, `NtUserGetClassInfoEx`
+  (`class.c`) and `alloc_dc_ptr` (`dc.c`), which do not touch the thread's queue or session data. Notepad's UI thread calls only
+  RegisterClassW before CoreMessagingXP asks; it now gets TRUE as on Windows and registers its wake packet directly on its Init2
+  port (no private port). Not counted (client-side in Wine): RegisterWindowMessageW, GetStockObject, GetDpiForSystem,
+  SetThreadDpiAwarenessContext. Test: `msg.c` `is_gui_thread_first_call_proc` (RegisterClassW, GetClassInfoExW, CreateCompatibleDC
+  on a fresh thread). Lab msg test: x86_64 188 failures (as before); i386 207 failures with and without the change, on identical
+  lines (WM_COPYDATA, PrintWindow, focus, regions); none in the IsGUIThread tests.
 
 ## ntdll: a package's own DLL beats a builtin of the same name (UWP, Wine branch `claude/package-dll-load-order`, 2026-11-26)
 
