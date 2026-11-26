@@ -305,6 +305,18 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          timer, the private port, `SystemUserAdapterWindowClass`-style second window, `DcppUserAdapterWindowClass` style), then
          measure where the (1, 0) lands; if Windows posts it at completion time, post it from wineserver when the packet completes
          (the queue already knows its port).
+     - **The re-arm is the gate, InputSite is next (2026-11-27, night; lab b39, diagnostic only).**
+       * Diagnostic (lab tree only, never for a branch; `rearm-diag.py` in the session scratchpad, env `WINE_CM_REARM=1`): ntdll
+         records every `NtAssociateWaitCompletionPacket` (packet, port, target, key); win32u remembers the key of the zero-APC
+         completion it turned into the (1, 0) wake and, after the window procedure has handled that wake, associates the same
+         packet again.
+       * b39 with it: the input thread's wake packet (0x2dc) is re-armed 11 times and the UI thread's (0x118) and two batch packets
+         too (all status 0); the CoreMessaging rounds go on; at 350164.503 the input thread activates
+         `Windows.UI.Internal.Input.InputSite` and 35 ms later fail-fasts (WIL error path) because Wine has no such class.
+       * So: the missing re-arm is what stops Notepad, and InputSite (being built on `claude/uwp-inputsite`, Windows 10 serves the
+         `{8ca0442d}` factory interface that this path asks for) is the next blocker. The proper re-arm mechanism (what makes
+         CoreMessagingXP re-arm on Windows) is still unknown; the diagnostic re-arms after every (1, 0), Windows re-arms from the
+         batch round on.
      - **The UI thread took the wrong CoreMessaging path (2026-11-27, night; `wt-isgui`, `guithread-probe.c` extended; b38).**
        * Windows: Notepad's UI thread gets `IsGUIThread(FALSE)` = 1 when CoreMessagingXP asks, so it registers its wake packet
          directly on the Init2 port (no private port, no cancel); only the input thread gets 0 and takes the private-port path.
