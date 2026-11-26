@@ -207,6 +207,28 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          Wine serves (`ApiInformation`, `UISettings`, `CoreApplication`, `AppWindow`, the manager), or work enqueued to a queue whose
          wake (6,0) never repeats. Next experiment: a Windows trace of the exported calls between the subscription and the first
          `Uri` activation (`GetMessageW`/`PeekMessageW` returns with message ids), and a Wine run with `+twinapi,+wintypes,+windows.ui`.
+     - **The gate is the input thread, not the UI thread (2026-11-26, later; Windows `wt-loop2`, `wt-npost`; lab b29, b33-b36).**
+       * Windows (DispatchMessageW's MSG, exported calls only): after the manager the UI thread *does* return to its loop (first
+         `GetMessageW` right after the six `GetWindowThreadProcessId`), dispatches 0x31f, its own `WM_USER+5` (posted by Notepad just
+         before the manager), WM_PAINTs and about 2 s of CoreMessaging rounds. The page load (`PropertyValue`, `Uri`, then the
+         TabView templates) starts 47 ms after Windows App SDK's input thread activates `Windows.UI.Internal.Input.InputSite`. That
+         thread gets four completion wakes (0x60, 0x80000001) in those 2 s, then (6) drain rounds, then InputSite.
+       * Wine dispatches the same first messages (`WM_USER+5` included) and the same first rounds. Its input thread gets **one**
+         completion wake. In the (1) handler CoreMessagingXP resets the event, drains, runs its work list, and never re-associates the
+         wait packet (Windows re-associates it there, TTD note above), so later signals of that event no longer wake the thread.
+         No InputSite, no page load.
+       * No user-mode code on Windows posts (0x60, 1, 0) (`wt-npost`: win32u-level `NtUserPostMessage` sees only (5,4) and (6,0)), so
+         the (1, 0) comes from the completion path itself. Plain probe windows get (3, 0) inside the wait instead, whether they
+         register through win32u or through user32 ordinal 2669 (`drain3-probe.c`).
+       * Tried and dropped: a drain call that delivers the pending zero-APC completion as (3, 0). CoreMessagingXP fail-fasts on it
+         (e0464645, input thread), with and without the IsGUIThread change below.
+       * **IsGUIThread (Wine `claude/isguithread`, 6a06879a).** On a new thread CoreMessagingXP asks `IsGUIThread(FALSE)` and sets up its
+         private completion port and the cancel/re-associate packet sequence only when the answer is 0 (as on Windows, where a new
+         thread is not a GUI thread until its first win32k call; `guithread-probe.c`). Wine's stub returned TRUE, so it took another
+         path. Implemented; the input and UI threads now take the Windows path (b35). The stall is unchanged: still one wake.
+       * Next: what makes Windows' input thread re-associate after the (1) wake. Under the rule, compare the calls of the (1) handler
+         on Windows and Wine (both now on the same set-up path): return values of the drain call and of the work it runs, and the
+         stack arguments of `NtAssociateWaitCompletionPacket` (which packet, which port, `AlreadySignaled`).
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
