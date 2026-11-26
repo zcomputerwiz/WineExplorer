@@ -5219,3 +5219,40 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## msi: deferred custom actions without impersonation run as SYSTEM in session 0 (B108, 2026-11-26)
+
+Wine `claude/msi-noimpersonate-system` (on the WineExplorer pin). Design: `MSI_NOIMPERSONATE_SYSTEM.md`, option B with
+the draft 4 corrections. A deferred action with `msidbCustomActionTypeNoImpersonate` of an elevated (full token)
+per-machine install (`package->Context` is the machine) runs as SYSTEM in session 0 when the session 0 service
+`wexmsiserver` is there; without it (a plain prefix, development mode) or after its refusal it runs as the installing
+user, as before (the WARN stays for that case).
+
+- `dlls/msi/syshost.c` (new): the client (connect to `\\.\pipe\WexSession0\wexmsiserver`, send the action's binary,
+  relay the action's ncalrpc channels to this process's own msi endpoint, filtered: a bind to the msi interface only;
+  requests GetProperty, ProcessMessage, GetMode, GetLanguage, FormatRecord, CloseHandle on a restricted handle and
+  GetActionInfo of an action of the host; anything else gets a fault with `ERROR_ACCESS_DENIED`) and the host
+  (`__wine_msi_syshost`: a random local ncalrpc endpoint with a SYSTEM-only DACL, the binaries written into a folder
+  of its own under `C:\windows\Installer\WexSys*` with SYSTEM and Administrators only, removed at the end; EXE actions
+  started from there, from `C:\`).
+- `dlls/msi/custom.c`: types 1 (DLL in the Binary table) and 2 (EXE in the Binary table) go to the host when
+  `msi_syshost_wanted`; `__wine_msi_call_dll_function` became `custom_call_dll_function` (an endpoint name and the
+  host's own copy of the DLL); `s_remote_GetActionInfo` gives a host's action a restricted handle; other action types
+  without impersonation keep running as the user with a FIXME naming the action (script actions run in the client in
+  Wine).
+- `dlls/msi/handle.c`: a restricted flag on a handle (`alloc_msihandle_restricted`, `msi_handle_is_restricted`).
+- `dlls/msi/package.c`: `s_remote_GetProperty` on a restricted handle answers only `CustomActionData`, `ProductCode`
+  and `UserSID` (others are empty, as for a deferred action on Windows); `s_remote_FormatRecord` formats without the
+  package's properties; the package's end stops its hosts.
+- `dlls/msi/msipriv.h`, `msi.spec` (`__wine_msi_syshost`), `Makefile.in`.
+- `programs/msiexec/msiexec.c`: `-WexSysHost <handle>` runs the host on the inherited connection.
+- `server/named_pipe.c`, `pipe_bridge_allowed`: `wexmsiserver` (needs a session link, like `eventlog`).
+- `loader/wine.inf.in`: the service `wexmsiserver` (LocalSystem, auto start, `WexStartInSession0Only`).
+- `include/wine/wex_msisys.h` (new, in `include/Makefile.in`): the request and the frames.
+
+WineExplorer side: `src/programs/wexmsiserver` (the service: the gate is the server's caller class
+`WEX_CALLER_ELEVATED_ADMIN` on the bridged connection plus `TokenElevationTypeFull`, and the request's per-machine flag;
+it starts `msiexec -WexSysHost` as its child and hands it the connection as the only inherited handle; an event in the
+System log for each host and each refusal). Tests: suite section `c7_msi` (the EXE and the 32- and 64-bit DLL actions
+without impersonation as SYSTEM in session 0 with a deferred action's view, an impersonated one as the elevated user,
+the folder removed, the gate's refusals of a limited administrator and of a per-user request); `scripts/msisys_probe.c`.

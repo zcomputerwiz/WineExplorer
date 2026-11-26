@@ -170,6 +170,7 @@ static void facts(FILE *out)
     char *str, dir[MAX_PATH];
 
     fprintf(out, "pid=%lu\nparent=%lu\n", GetCurrentProcessId(), parent_pid());
+    if (ProcessIdToSessionId(GetCurrentProcessId(), &value)) fprintf(out, "session=%lu\n", value);
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
     {
         if (GetTokenInformation(token, TokenUser, buf, sizeof(buf), &len) &&

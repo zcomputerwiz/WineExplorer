@@ -1492,7 +1492,10 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scr
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
     $cc -O2 -Wall -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
+    # msi's SYSTEM custom action host: the custom action DLL and the gate client (docs/MSI_NOIMPERSONATE_SYSTEM.md)
+    $cc -O2 -Wall -shared -DMSISYS_DLL -Wl,--kill-at -o "$ROOT/probes/msisys_probe$arch.dll" "$SRC/scripts/msisys_probe.c" -lmsi -ladvapi32
 done
+x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/msisys_probe64.exe" "$SRC/scripts/msisys_probe.c"
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
 has_str "$ROOT/probes/wexelevate_test.exe" wexelevate_stub || fail "the test broker does not call the stub (control)"
@@ -4442,13 +4445,15 @@ el_down "$STD"
 true; ); section_leave $?; fi
 fi
 
-# -- a per-machine MSI by a limited administrator is relaunched once through the broker (one consent) and its deferred
-# custom action runs with the full token; a per-user MSI does not elevate
+# -- a per-machine MSI by a limited administrator is relaunched once through the broker (one consent); its deferred
+# custom actions without impersonation run as SYSTEM in session 0 (WexMsiServer's host), an impersonated one with the
+# full token; only an elevated per-machine install gets the host; a per-user MSI does not elevate
 if section c7_msi; then set +e; ( section_enter
 if command -v wixl >/dev/null && command -v msibuild >/dev/null; then
 echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
 echo hello > "$MS/hello.txt"; cp "$ROOT/probes/wexelevate_probe32.exe" "$MS/act.exe"
+cp "$ROOT/probes/msisys_probe32.dll" "$MS/act32.dll"; cp "$ROOT/probes/msisys_probe64.dll" "$MS/act64.dll"
 mkmsi()   # name all-users(1|0) folder-id
 {
     local name="$1" allusers="$2" dir="$3" prop=""
@@ -4468,6 +4473,8 @@ mkmsi()   # name all-users(1|0) folder-id
       </Directory>
     </Directory>
     <Binary Id="ActBin" SourceFile="$MS/act.exe"/>
+    <Binary Id="Dll32" SourceFile="$MS/act32.dll"/>
+    <Binary Id="Dll64" SourceFile="$MS/act64.dll"/>
     <Feature Id="Main" Level="1"><ComponentRef Id="C1"/></Feature>
   </Product>
 </Wix>
@@ -4476,6 +4483,18 @@ EOF
     # a deferred custom action without impersonation (type 2 | continue 0x40 | in-script 0x400 | no impersonation 0x800) that reports the token it runs with
     msibuild "$MS/$name.msi" -q "INSERT INTO \`CustomAction\` (\`Action\`, \`Type\`, \`Source\`, \`Target\`) VALUES ('Act', 3138, 'ActBin', 'child $(winpath $EL/out.msi.act)')" \
         -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('Act', 'NOT Installed', 4100)"
+    # DLL actions, deferred: without impersonation (1 | 0x400 | 0x800), 32 and 64 bit, and one impersonated (1 | 0x400);
+    # each writes its facts to the path in its CustomActionData (the property of its name)
+    local act type bin seq
+    while read -r act type bin seq; do
+        msibuild "$MS/$name.msi" -q "INSERT INTO \`CustomAction\` (\`Action\`, \`Type\`, \`Source\`, \`Target\`) VALUES ('$act', $type, '$bin', 'Facts')" \
+            -q "INSERT INTO \`Property\` (\`Property\`, \`Value\`) VALUES ('$act', '$(winpath $EL/out.$act)')" \
+            -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('$act', 'NOT Installed', $seq)"
+    done <<'ACTIONS'
+SysDll32 3073 Dll32 4101
+SysDll64 3073 Dll64 4102
+ImpDll32 1025 Dll32 4103
+ACTIONS
     chmod 644 "$MS/$name.msi"
 }
 # TEMP of the machine root points into the setup user's profile, which a limited process cannot write: the probe sets its own
@@ -4500,8 +4519,40 @@ el_up "$ADM"
 msi_case c7_msi_per_machine_install_asks_once machine approve 0
 [ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "the per-machine MSI asked more than once"
 [ -f "$M/drive_c/Program Files (x86)/WexCallersmachine/hello.txt" ] || { find "$M/drive_c" -name hello.txt >&2; fail "the per-machine MSI did not install into Program Files"; }
-[ "$(el_fact "$EL/out.msi.act" elevation)" = 2 ] && [ "$(el_fact "$EL/out.msi.act" program_files)" = writable ] || { cat "$EL/out.msi.act" >&2; fail "the deferred custom action did not run elevated"; }
-ok c7_msi_per_machine_install_one_consent_and_the_deferred_action_is_elevated
+ok c7_msi_per_machine_install_one_consent
+# deferred actions without impersonation run as SYSTEM in session 0 (docs/MSI_NOIMPERSONATE_SYSTEM.md, option B): the EXE
+# and the DLLs, 32 and 64 bit, which see a deferred action's view of the package; an impersonated one runs as the
+# elevated user in the user's session
+[ "$(el_fact "$EL/out.msi.act" user)" = S-1-5-18 ] && [ "$(el_fact "$EL/out.msi.act" session)" = 0 ] &&
+    [ "$(el_fact "$EL/out.msi.act" program_files)" = writable ] || { cat "$EL/out.msi.act" >&2; fail "the deferred EXE action without impersonation did not run as SYSTEM in session 0"; }
+ok c7_msi_deferred_exe_without_impersonation_runs_as_system_in_session0
+for b in 32 64; do
+    f="$EL/out.SysDll$b"
+    [ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" = S-1-5-18 ] && [ "$(el_fact "$f" session)" = 0 ] &&
+        [ "$(el_fact "$f" bits)" = $b ] || { cat "$f" >&2; fail "the $b-bit deferred DLL action without impersonation did not run as SYSTEM in session 0"; }
+    el_fact "$f" module | grep -qi '\\Installer\\WexSys' || { cat "$f" >&2; fail "the $b-bit SYSTEM action was not loaded from the host's own folder"; }
+    # a deferred action's view: its CustomActionData (it found the path), ProductCode and UserSID; nothing else
+    [ -z "$(el_fact "$f" prop_ProductName)" ] && el_fact "$f" prop_ProductCode | grep -q '^{' &&
+        [ "$(el_fact "$f" activedb)" = 0 ] && [ "$(el_fact "$f" setprop)" != 0 ] &&
+        [ "$(el_fact "$f" mode_scheduled)" = 1 ] || { cat "$f" >&2; fail "the $b-bit SYSTEM action saw more than a deferred action does"; }
+done
+ok c7_msi_deferred_dlls_without_impersonation_run_as_system_with_the_deferred_view
+f="$EL/out.ImpDll32"
+[ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" != S-1-5-18 ] && [ "$(el_fact "$f" elevation)" = 2 ] &&
+    [ "$(el_fact "$f" session)" != 0 ] || { cat "$f" >&2; fail "the impersonated deferred DLL action did not run as the elevated user"; }
+ok c7_msi_impersonated_deferred_dll_runs_as_the_elevated_user
+ls "$M/drive_c/windows/Installer" 2>/dev/null | grep -q '^WexSys' && { ls -la "$M/drive_c/windows/Installer" >&2; fail "a SYSTEM host left its folder"; }
+ok c7_msi_system_host_removes_its_folder
+# the gate (WexMsiServer): only an elevated administrator's per-machine install gets a host
+out="$(wine_as "$ADM" "$ROOT/probes/msisys_probe64.exe" gate 64 1 2>&1 | tr -d '\r')"
+grep -q '^gate=5$' <<<"$out" || { echo "$out" >&2; fail "a limited administrator got a SYSTEM host"; }
+ok c7_msi_gate_refuses_a_limited_administrator
+el_cmd c7_msi_gate_per_user "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 0 > $(winpath $EL/gate0.txt)"
+grep -q '^gate=5' "$EL/gate0.txt" || { cat "$EL/gate0.txt" >&2; fail "an elevated per-user request got a SYSTEM host"; }
+ok c7_msi_gate_refuses_a_per_user_install
+el_cmd c7_msi_gate_per_machine "$ADM" "$(winpath $ROOT/probes/msisys_probe64.exe) gate 64 1 > $(winpath $EL/gate1.txt)"
+grep -q '^gate=0' "$EL/gate1.txt" && grep -q '^host=ready' "$EL/gate1.txt" || { cat "$EL/gate1.txt" >&2; fail "an elevated per-machine request got no SYSTEM host"; }
+ok c7_msi_gate_starts_a_host_for_an_elevated_per_machine_install
 msi_case c7_msi_per_machine_cancel_is_user_exit machine cancel 1602
 ok c7_msi_per_machine_cancel_returns_error_install_userexit
 # a per-user install does not elevate and asks nothing. It does not complete either while elevation is enforced: opening the
