@@ -12,3 +12,4 @@ key-probe     | 60 |                                          | packet key value
 peek-probe    | 60 |                                          | which retrieval calls deliver a pending completion
 io-probe      | 90 | wait 0x[0-9a-f]+                         | which waits deliver a queued packet; zero-APC packets with several keys
 win-probe     | 30 | error [0-9]+                             | at most two windows per thread; zero APC reaches the first window only
+kbd-msg-probe | 30 |                                          | posted key messages: TranslateMessage/WM_CHAR with Shift/Caps/Ctrl state, SetKeyboardState, hook order, layout queries
