@@ -7,7 +7,9 @@
 * `dlls/ntdll/version.c`: a new version name `win11_23h2`. It is 10.0.22631, with the Windows 11 suite and product type (workstation)
   and no CSD. It can be selected with `HKCU\Software\Wine\AppDefaults\<exe>\Version` like the other names.
 * `loader/wine.inf.in` (`[UserRegistry]` and `[CurrentVersion]`): `AppDefaults\Notepad.exe\Version` = `win11_23h2`. The flag keeps a
-  user's own value. Every other program keeps the default, 10.0.19045.
+  user's own value. Other programs keep the prefix's version (10.0.19045 as shipped).
+* Rule for further WinUI 3 apps: one `AppDefaults\<app>.exe\Version` line per app executable, added here and listed in this entry;
+  all of them are removed together when the 26100 packet mode works. Apps so far: `Notepad.exe`.
 * Why:
   * From build 26100, CoreMessagingXP associates its wait packets with a key and APC context 0. Under Wine, a completed packet of
     that kind is never noticed, so its DispatcherQueueTimer never ticks, and Notepad's page load waits for such a tick.
