@@ -54,6 +54,8 @@ static void token_facts( FILE *out )
     }
     if (GetTokenInformation( token, TokenElevationType, &value, sizeof(value), &len ))
         fprintf( out, "elevation=%lu\n", value );
+    if (GetTokenInformation( token, TokenElevation, &value, sizeof(value), &len ))
+        fprintf( out, "elevated=%lu\n", value );   /* TokenIsElevated */
     if (GetTokenInformation( token, TokenIntegrityLevel, buf, sizeof(buf), &len ))
     {
         SID *sid = ((TOKEN_MANDATORY_LABEL *)buf)->Label.Sid;
@@ -120,6 +122,7 @@ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
 
 #else  /* the EXE */
 
+#include <shellapi.h>
 #include "wine/wex_msisys.h"
 
 static BOOL read_full( HANDLE h, void *buffer, DWORD size )
@@ -191,11 +194,45 @@ static int silent( void )
     return 0;
 }
 
+/* what an action in the SYSTEM host can start through the shell (Edge Update's /handoff does this, B108):
+ * shexec=ok:EXITCODE or shexec=fail:ERROR, and the process's context, to OUT */
+static int shexec( const char *image, const char *args, const char *path )
+{
+    SHELLEXECUTEINFOA sei = { sizeof(sei) };
+    DWORD code = 0, session = 0;
+    char desk[256] = "";
+    FILE *out;
+
+    if (!(out = fopen( path, "w" ))) return 1;
+    ProcessIdToSessionId( GetCurrentProcessId(), &session );
+    GetUserObjectInformationA( GetThreadDesktop( GetCurrentThreadId() ), UOI_NAME, desk, sizeof(desk), NULL );
+    fprintf( out, "session=%lu\ndesktop=%s\nbits=%u\n", session, desk, (unsigned)sizeof(void *) * 8 );
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    sei.lpFile = image;
+    sei.lpParameters = args;
+    sei.nShow = SW_HIDE;
+    SetLastError( 0 );
+    if (ShellExecuteExA( &sei ))
+    {
+        if (sei.hProcess)
+        {
+            WaitForSingleObject( sei.hProcess, 30000 );
+            GetExitCodeProcess( sei.hProcess, &code );
+            CloseHandle( sei.hProcess );
+        }
+        fprintf( out, "shexec=ok:%lu\n", code );
+    }
+    else fprintf( out, "shexec=fail:%lu\nhinst=%Iu\n", GetLastError(), (ULONG_PTR)sei.hInstApp );
+    fclose( out );
+    return 0;
+}
+
 int main( int argc, char **argv )
 {
     if (argc == 4 && !strcmp( argv[1], "gate" )) return gate( atoi( argv[2] ), atoi( argv[3] ) );
     if (argc == 2 && !strcmp( argv[1], "silent" )) return silent();
-    fprintf( stderr, "usage: msisys_probe gate ARCH FLAGS | silent\n" );
+    if (argc == 5 && !strcmp( argv[1], "shexec" )) return shexec( argv[2], argv[3], argv[4] );
+    fprintf( stderr, "usage: msisys_probe gate ARCH FLAGS | silent | shexec IMAGE ARGS OUT\n" );
     return 2;
 }
 

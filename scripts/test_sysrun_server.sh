@@ -1495,7 +1495,8 @@ for arch in 64 32; do
     # msi's SYSTEM custom action host: the custom action DLL and the gate client (docs/MSI_NOIMPERSONATE_SYSTEM.md)
     $cc -O2 -Wall -shared -DMSISYS_DLL -Wl,--kill-at -o "$ROOT/probes/msisys_probe$arch.dll" "$SRC/scripts/msisys_probe.c" -lmsi -ladvapi32
 done
-x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/msisys_probe64.exe" "$SRC/scripts/msisys_probe.c"
+x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/msisys_probe64.exe" "$SRC/scripts/msisys_probe.c" -lshell32
+i686-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/msisys_probe32.exe" "$SRC/scripts/msisys_probe.c" -lshell32
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
 has_str "$ROOT/probes/wexelevate_test.exe" wexelevate_stub || fail "the test broker does not call the stub (control)"
@@ -4456,6 +4457,7 @@ echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
 echo hello > "$MS/hello.txt"; cp "$ROOT/probes/wexelevate_probe32.exe" "$MS/act.exe"
 cp "$ROOT/probes/msisys_probe32.dll" "$MS/act32.dll"; cp "$ROOT/probes/msisys_probe64.dll" "$MS/act64.dll"
+cp "$ROOT/probes/msisys_probe32.exe" "$MS/sh32.exe"
 mkmsi()   # name all-users(1|0) folder-id [guid-tag [wait-dir]]: SysDll64 holds in WAIT-DIR (msisys_probe.c)
 {
     local name="$1" allusers="$2" dir="$3" tag="${4:-$2}" waitdir="${5:-}" prop=""
@@ -4477,6 +4479,7 @@ mkmsi()   # name all-users(1|0) folder-id [guid-tag [wait-dir]]: SysDll64 holds 
     <Binary Id="ActBin" SourceFile="$MS/act.exe"/>
     <Binary Id="Dll32" SourceFile="$MS/act32.dll"/>
     <Binary Id="Dll64" SourceFile="$MS/act64.dll"/>
+    <Binary Id="ShBin" SourceFile="$MS/sh32.exe"/>
     <Feature Id="Main" Level="1"><ComponentRef Id="C1"/></Feature>
   </Product>
 </Wix>
@@ -4499,6 +4502,10 @@ SysDll32 3073 Dll32 4101
 SysDll64 3073 Dll64 4102
 ImpDll32 1025 Dll32 4103
 ACTIONS
+    # a 32-bit EXE action without impersonation that starts a program through the shell, as Edge Update's /handoff
+    # does (B108): continue (0x40), so the install goes on and the facts say what happened
+    msibuild "$MS/$name.msi" -q "INSERT INTO \`CustomAction\` (\`Action\`, \`Type\`, \`Source\`, \`Target\`) VALUES ('SysShexec', 3138, 'ShBin', 'shexec C:\\windows\\system32\\cmd.exe \"/c exit 7\" $(winpath $EL/out.shexec)')" \
+        -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('SysShexec', 'NOT Installed', 4104)"
     chmod 644 "$MS/$name.msi"
 }
 # TEMP of the machine root points into the setup user's profile, which a limited process cannot write: the probe sets its own
@@ -4576,6 +4583,10 @@ for b in 32 64; do
         [ "$(el_fact "$f" mode_scheduled)" = 1 ] || { cat "$f" >&2; fail "the $b-bit SYSTEM action saw more than a deferred action does"; }
 done
 ok c7_msi_deferred_dlls_without_impersonation_run_as_system_with_the_deferred_view
+echo "--- the SYSTEM host's token: $(grep -E '^(user|elevation|elevated|integrity)=' "$EL/out.SysDll64" | tr '\n' ' ')"
+# an EXE action in the host can start a program through the shell (Edge Update's /handoff, B108)
+[ "$(el_fact "$EL/out.shexec" shexec)" = ok:7 ] || { cat "$EL/out.shexec" >&2 || true; fail "a SYSTEM action could not start a program through the shell"; }
+ok c7_msi_system_action_starts_a_program_through_the_shell
 f="$EL/out.ImpDll32"
 [ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" != S-1-5-18 ] && [ "$(el_fact "$f" elevation)" = 2 ] &&
     [ "$(el_fact "$f" session)" != 0 ] || { cat "$f" >&2; fail "the impersonated deferred DLL action did not run as the elevated user"; }
