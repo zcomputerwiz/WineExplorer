@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# Session 0's logs: the unit's own (wineboot, services.exe), written through the descriptor systemd opens as root,
+# and one file per service, written by the service itself (session 0's account wexsys, ntdll's WINEDEBUGLOG). Nobody
+# else reads them: a service's debug output can carry what its callers sent.
+d /var/log/wineexplorer 0755 root root -
+f /var/log/wineexplorer/session0.log 0600 root root -
+d /var/log/wineexplorer/services 0700 wexsys wexsys -

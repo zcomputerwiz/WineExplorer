@@ -402,6 +402,10 @@ install -m755 "$ROOT_DIR/src/wexprefetchd/wexpf-client" "$STAGE_SESSION/usr/loca
 cp "$SCRIPT_DIR/systemd/wexprefetchd.socket" "$SCRIPT_DIR/systemd/wexprefetchd.service" "$SCRIPT_DIR/systemd/wexksmtuned.service" "$STAGE_SESSION/lib/systemd/system/"
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.sysusers" "$STAGE_SESSION/usr/lib/sysusers.d/wexprefetchd.conf"
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wexprefetchd.conf"
+# session 0's logs: the unit's file and one per service, root's and session 0's account's only, rotated
+install -m644 "$SCRIPT_DIR/systemd/wex-session0.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wex-session0.conf"
+install -D -m644 "$SCRIPT_DIR/systemd/wex-session0.logrotate" "$STAGE_SESSION/etc/logrotate.d/wex-session0"
+echo /etc/logrotate.d/wex-session0 >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/prefetch.conf.example" "$STAGE_SESSION/etc/wineexplorer/prefetch.conf"
 echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 # /etc overrides the generator's own /usr/lib/systemd/zram-generator.conf, which systemd-zram-generator owns
@@ -426,6 +430,9 @@ cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 set -e
 systemd-sysusers wexprefetchd.conf || true
 systemd-tmpfiles --create wexprefetchd.conf || true
+# session 0's log folders (wexsys's services folder needs the account: before the machine's setup this fails, and
+# the boot's tmpfiles run makes it)
+systemd-tmpfiles --create wex-session0.conf || true
 
 # Safe Mode (docs/SAFE_MODE.md). The earlier implementation (wex-safemode-setup.sh) edited LightDM, PAM and
 # AccountsService files at every boot; remove what it may have left behind.
@@ -541,7 +548,7 @@ Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
 Recommends: systemd-zram-generator
-Depends: wineexplorer, wexcomp, acl, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, python3-dbus, python3-gi, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
+Depends: wineexplorer, wexcomp, acl, logrotate, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, python3-dbus, python3-gi, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units

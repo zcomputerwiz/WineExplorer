@@ -27,6 +27,13 @@ Environment=WINEPREFIX=/var/lib/wineexplorer/machine
 Environment=HOME=/var/lib/wineexplorer/machine
 Environment=WINEDEBUG=-all
 Environment=WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+# an administrator's settings for diagnosing session 0 (WINEDEBUG=err+all,+exec for example), then
+# "systemctl restart wex-session0": they override the lines above
+EnvironmentFile=-/etc/wineexplorer/session0.env
+# what wineboot and services.exe write; each service writes its own file in /var/log/wineexplorer/services
+# (services.exe gives it WINEDEBUGLOG). Root's folder (tmpfiles.d wex-session0.conf), rotated by logrotate.
+StandardOutput=append:/var/log/wineexplorer/session0.log
+StandardError=inherit
 # wex-session0.service is Type=notify: it is started (After=) only once its socket listens; this check only refuses
 # to run wineboot against a server that has none
 ExecStartPre=/bin/test -S /run/wineexplorer-session0/session0

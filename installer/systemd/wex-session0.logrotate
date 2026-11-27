@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# Session 0's logs (wex-session0-services.service, tmpfiles.d wex-session0.conf). The writers keep their descriptors
+# open, so the files are copied and truncated, not moved.
+/var/log/wineexplorer/session0.log {
+    weekly
+    maxsize 20M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+
+/var/log/wineexplorer/services/*.log {
+    weekly
+    maxsize 20M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su wexsys wexsys
+}

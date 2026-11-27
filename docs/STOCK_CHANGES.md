@@ -5219,3 +5219,23 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## Session 0 services' logs (2026-11-26)
+
+Wine `claude/session0-service-logs` (one commit on development):
+
+- `dlls/ntdll/unix/debug.c` (`open_debug_log`, first in `init_options`): `WINEDEBUGLOG=/absolute/path` in the Unix
+  environment sends the process's debug output (fd 2) to that file, appended, created 0600 by the process's own
+  account, `O_NOFOLLOW`. Unset or relative: nothing changes.
+- `dlls/ntdll/unix/process.c` (`get_debug_log_var`, `spawn_process`): like `WINEDEBUG`, a `WINEDEBUGLOG` in the new
+  process's Windows environment is put into its Unix environment (a child otherwise inherits only the parent's).
+- `programs/services/services.c` (`service_log_environment`, `service_start_process`): in session 0 each service
+  process gets `WINEDEBUGLOG=/var/log/wineexplorer/services/<name>.log` (name limited to letters, digits, `-`, `_`,
+  `.`; shared processes by their group name), and services.exe's `WINEDEBUG` is copied into the services' block.
+
+WineExplorer side: `wex-session0-services.service` appends the unit's own output (wineboot, services.exe) to
+`/var/log/wineexplorer/session0.log` (root, 0600) and reads `WINEDEBUG` overrides from `/etc/wineexplorer/session0.env`;
+`tmpfiles.d/wex-session0.conf` makes `/var/log/wineexplorer` (0755), the log (0600) and `services/` (wexsys, 0700);
+`/etc/logrotate.d/wex-session0` rotates both weekly or at 20 MB (copytruncate). Checked in a VM of the test ISO:
+every session 0 service (lsass, winedevice, wexpolicy, wexmsiserver, wexaccounts, plugplay, eventlog's svchost) had
+its fd 2 on its own file and `WINEDEBUG` from session0.env; user sessions unchanged.
