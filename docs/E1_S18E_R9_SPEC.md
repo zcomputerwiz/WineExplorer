@@ -274,3 +274,19 @@ findings. v3:
   prompt on an insecure desktop (`secure_desktop` 0 is DECISION deny, policy); B0 opens its S6 channel per request.
 * **The pipe's descriptor.** `D:P(A;;GA;;;SY)`. The server's named pipe type needed the file access mapping for
   the generic right to cover a client's read and write (`docs/STOCK_CHANGES.md`).
+
+## 14. After B132 (2026-11-27): A as session 0 maps it
+
+* **What changed.** B132 maps a session's system role to the account whose uid runs it, SYSTEM kept only as a
+  deny-only group, so A's token no longer matches `D:P(A;;GA;;;SY)` nor "the user is LocalSystem" (batch 1150's
+  lab run: `r9a open failed 5`). Session 0's server marks such a token (`session_system`, a flag, no SID) and says so
+  as a caller class, `WEX_CALLER_SESSION_SYSTEM` (`wine/wex_caller.h`). B0 admits A by that class
+  (`r9b_client_ok`); development mode, where session 0 maps nothing, still describes SYSTEM itself. The descriptor
+  is `D:P(A;;GA;;;SY)(A;;GRGW;;;AU)`, so that A can connect; every other caller is refused at the first read and
+  logged with its class. B0 takes its one request in flight only for an admitted A. `caller_session` still comes
+  from S0 (section 3), so A acts on its own session's request only.
+* **A claimed SYSTEM.** A description that session 0 does not map loses SYSTEM, LocalService and NetworkService as
+  groups (`token_apply_link_policy`), so a deny-only SYSTEM is only ever the mapping's.
+* **Condition before R9 leaves the lab.** With authenticated users able to connect and 8 instances, any user of
+  any session can hold B0's instances for `R9B_IO_TIMEOUT` each and stall every prompt. Production needs
+  wexmsiserver's limits: a read deadline, an instance cap per SID, and refusal logging that is rate-limited.

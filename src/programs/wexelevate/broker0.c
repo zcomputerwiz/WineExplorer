@@ -214,47 +214,50 @@ static void r9b_release( struct r9b *b, uint32_t outcome )
         r9b_trace( "released" );
 }
 
-/* B132: session 0 maps a session's system role to the account whose uid runs it and keeps SYSTEM only as a deny-only
- * group (token_map_service_user, the only place that makes one). A user's own token never has S-1-5-18, and a user
- * can mark deny-only only the SIDs its token has, so a deny-only S-1-5-18 marks a session's SYSTEM as session 0's
- * server made it. */
-static BOOL r9b_token_is_mapped_system( HANDLE token, PSID system_sid )
-{
-    TOKEN_GROUPS *groups;
-    DWORD size = 0, i;
-    BOOL ok = FALSE;
+/* B132: session 0 maps a session's system role to the account whose uid runs it, so its token no longer says SYSTEM;
+ * session 0's server says what it is, as a caller class (WEX_CALLER_SESSION_SYSTEM, wine/wex_caller.h), as the
+ * EventLog and wexmsiserver gates ask it. The server request needs Wine's headers and ntdll: in the Wine tree
+ * (__WINESRC__, the lab build) B0 asks it; the plain MinGW builds of scripts/test_broker_e1s18.sh are compile checks
+ * that are never run, and there B0 admits nobody by class. */
+#ifdef __WINESRC__
+#include "wine/wex_caller.h"
+#else
+#define WEX_CALLER_CONSTANTS_ONLY
+#include "wine/wex_caller.h"
+static unsigned int wex_caller_class_of_pipe( HANDLE pipe ) { (void)pipe; return WEX_CALLER_NONE; }
+#endif
 
-    GetTokenInformation( token, TokenGroups, NULL, 0, &size );
-    if (!size || !(groups = HeapAlloc( GetProcessHeap(), 0, size ))) return FALSE;
-    if (GetTokenInformation( token, TokenGroups, groups, size, &size ))
-        for (i = 0; i < groups->GroupCount && !ok; i++)
-            ok = (groups->Groups[i].Attributes & SE_GROUP_USE_FOR_DENY_ONLY) &&
-                 EqualSid( groups->Groups[i].Sid, system_sid );
-    HeapFree( GetProcessHeap(), 0, groups );
-    return ok;
-}
-
-/* The client is a session's SYSTEM (the bridge described its token; session 0 bound it to the peer server's
- * account), and session 0's server names the session it came from. Since B132 session 0 maps it to its account
- * (r9b_token_is_mapped_system); development mode, where session 0 maps nothing, still describes SYSTEM itself. */
+/* The client is a session's system role (the bridge described its token; session 0 bound it to the peer server's
+ * account and, since B132, mapped it to that account: WEX_CALLER_SESSION_SYSTEM), and session 0's server names the
+ * session it came from, which binds the request (the tuple's caller_session): an agent acts on its own session's
+ * request only. Development mode, where session 0 maps nothing, still describes SYSTEM itself. Every refusal is
+ * logged with the class. */
 static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
 {
     PSID system_sid = NULL;
     HANDLE token = NULL;
-    BOOL ok = FALSE;
+    unsigned int class = wex_caller_class_of_pipe( pipe );
+    BOOL ok = class == WEX_CALLER_SESSION_SYSTEM;
+    char trace[64];
 
     *session = 0;
-    if (!ImpersonateNamedPipeClient( pipe )) return FALSE;
-    if (!OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token )) token = NULL;
-    wex_revert_to_self();   /* returns only when this thread is itself again; else the process ends */
-    if (!token) return FALSE;
-    if (ConvertStringSidToSidW( L"S-1-5-18", &system_sid ))
+    if (!ok && class == WEX_CALLER_USER)
     {
-        ok = wex_token_user_is( token, system_sid, GetLengthSid( system_sid ) ) ||
-             r9b_token_is_mapped_system( token, system_sid );
-        LocalFree( system_sid );
+        if (!ImpersonateNamedPipeClient( pipe )) return FALSE;
+        if (!OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token )) token = NULL;
+        wex_revert_to_self();   /* returns only when this thread is itself again; else the process ends */
+        if (token && ConvertStringSidToSidW( L"S-1-5-18", &system_sid ))
+        {
+            ok = wex_token_user_is( token, system_sid, GetLengthSid( system_sid ) );
+            LocalFree( system_sid );
+        }
+        if (token) CloseHandle( token );
     }
-    CloseHandle( token );
+    if (!ok)
+    {
+        snprintf( trace, sizeof(trace), "client refused: caller class %u", class );
+        r9b_trace( trace );
+    }
     if (ok && (!GetNamedPipeClientSessionId( pipe, session ) || !*session)) ok = FALSE;
     return ok;
 }
@@ -564,9 +567,10 @@ static DWORD WINAPI r9b_client_thread( void *param )
 static HANDLE r9b_create_instance( BOOL first )
 {
     /* A session's agent (its token described over the bridge) and nothing else. Since B132 that token is the agent's
-     * account with SYSTEM deny-only (an allow ACE for SY no longer matches it), so the descriptor lets interactive
-     * callers connect and r9b_client_ok admits only a session's SYSTEM; anyone else is refused at the first read. */
-    return wex_pipe_create_instances( R9B_PIPE_NAME, L"D:P(A;;GA;;;SY)(A;;GRGW;;;IU)", first, R9B_FRAME_MAX,
+     * account (an allow ACE for SY no longer matches it), so the descriptor lets authenticated callers connect and
+     * r9b_client_ok admits only a session's system role, by the server's caller class; anyone else is refused at the
+     * first read, and logged. */
+    return wex_pipe_create_instances( R9B_PIPE_NAME, L"D:P(A;;GA;;;SY)(A;;GRGW;;;AU)", first, R9B_FRAME_MAX,
                                       R9B_INSTANCES );
 }
 

@@ -1,5 +1,5 @@
 MODULE    = wexelevate.exe
-IMPORTS   = advapi32 userenv bcrypt user32
+IMPORTS   = advapi32 userenv bcrypt user32 ntdll
 
 EXTRADLLFLAGS = -mconsole -municode
 
