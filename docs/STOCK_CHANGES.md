@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## d2d1: Outline, GetWidenedBounds, the rounded rectangle's figure, ellipse/rounded rectangle bounds (UWP, Wine branch `claude/d2d-outline` 354384c8, 2026-11-27)
+
+* `dlls/d2d1/geometry.c`:
+  * `Outline` for every geometry type: the geometry under the transform, united with itself by the combiner (`combine.c`), as filled
+    closed figures of lines; the flattened figures if the combiner cannot take that many edges.
+  * `GetWidenedBounds` for every type: the bounds under the transform, grown per axis by the transformed half stroke width (no miter
+    extensions).
+  * The rounded rectangle's `Simplify` (also used by `ComputeArea` and `Outline`) put its corner arcs on the wrong side of the
+    rectangle (40x20 radius 4: bounds 0,-4-40,24 and area 815, Windows 0,0-40,20 and 785). It now builds the figure as Windows 11
+    does, with normalised radii.
+  * `GetBounds` for ellipses and rounded rectangles (were stubs), exact under a transform.
+* Why: the Windows App SDK's in-process composition engine calls `Outline` and `GetWidenedBounds` for XAML shapes (Notepad's tab and
+  status bars).
+* Differences left: Windows keeps curves as Béziers in `Outline` and passes hollow figures through; Wine gives lines and leaves hollow
+  figures out. The covered area and the bounds are the same.
+* Test: `dlls/d2d1/tests/d2d1.c` `test_geometry_outline`, with values measured on Windows 11 by `tests/uwp/alpc/d2d-outline-probe.cpp`
+  (WineExplorer branch `claude/uwp-notepad-strips3`). Wine x86_64: 23538 tests, 0 failures. The whole d2d1 test isn't run on the host
+  (it switches display modes).
+
 ## server: the reply to a synchronous ALPC request goes to its thread only (UWP, Wine branch `claude/alpc-sync-reply` 74e1c977, 2026-11-27)
 
 * `server/alpc.c`: a request sent with `ALPC_MSGFLG_SYNC_REQUEST` remembers its thread, and so does its reply. Only that thread
