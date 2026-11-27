@@ -17,9 +17,15 @@ wex_fixture_machine()
         bash "$SRC/scripts/setup-machine-root.sh" > "$ROOT/setup.log" 2>&1
 }
 
-add_service()   # name account report-name start-type [registry-escaped ImagePath]
+# name account report-name start-type [registry-escaped ImagePath, or empty] [1: every session runs it]
+# The last argument marks a session's own service (WexSessionService=1): each session's system role runs it. Without
+# it a service is session 0's, and a session that uses session 0 only forwards its calls there (F1).
+add_service()
 {
     local image=${5:-"$SVCEXE svc $1 Z:\\\\tmp\\\\wexsvc\\\\$3.txt Z:\\\\var\\\\lib\\\\wexsys-c2\\\\machine"}
+    local session=()
+    [ "${6:-}" = 1 ] && session=('"WexSessionService"=dword:00000001')
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\'"$1" '"ErrorControl"=dword:00000001' \
-        '"ImagePath"="'"$image"'"' '"ObjectName"="'"$2"'"' '"Start"=dword:0000000'"$4" '"Type"=dword:00000010'
+        '"ImagePath"="'"$image"'"' '"ObjectName"="'"$2"'"' '"Start"=dword:0000000'"$4" '"Type"=dword:00000010' \
+        "${session[@]}"
 }

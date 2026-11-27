@@ -143,6 +143,7 @@ c3_std           -                  nl  c3
 c3_adm           -                  n   c3
 svc_table        -                  n   svc
 svc_table_elev   c4_build           n   svc
+f1_svc_config    c4_build           n   svc
 c4_build         -                  nl  c4
 c4_shipping      c4_build           nl  c4
 c4_control       c4_build           nl  c4
@@ -687,8 +688,10 @@ chmod 664 "$M/drive_c/windows/wex_marker.txt" "$M/drive_c/windows/wex_marker2.tx
 reg_append "$M/system.reg" 'Software\\WexProbe' '"FromMachine"="machine"'
 fi
 
+# WEX_WINEDEBUG (diagnostics only): the users' programs' WINEDEBUG instead of -all; WEX_HOLD_LOG: where the standard
+# user's hold (hold_start) sends its stderr, which the session's services.exe inherits
 run_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="/home/$u" USER="$u" LOGNAME="$u" PATH=/usr/bin:/bin LANG=C \
-    DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
+    DISPLAY=":$DNUM" WINEDEBUG="${WEX_WINEDEBUG:--all}" WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 wine_as() { local u="$1"; shift; run_as "$u" "$BUILD/wine" "$@"; }
 probe() { local u="$1" arch="$2" mode="$3"; shift 3; wine_as "$u" "$ROOT/probes/probe$arch.exe" "$mode" "$WINM" "$@" 2>&1; }
 server_pid()   # a live wineserver of the user (a killed one can stay a zombie in a container without init)
@@ -700,11 +703,37 @@ server_pid()   # a live wineserver of the user (a killed one can stay a zombie i
 }
 prefix_server_env() { run_as "$1" env WINEPREFIX="/home/$1/.wine" "$BUILD/server/wineserver" "${@:2}"; }
 
-hold_start() { probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!; sleep 4; }   # a client keeps the server alive
+hold_start() { probe "$STD" 64 hold >/dev/null 2>>"${WEX_HOLD_LOG:-/dev/null}" & HOLD=$!; sleep 4; }   # a client keeps the server alive
 hold_stop() { prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w; wait "$HOLD" 2>/dev/null || true; }
+# Session 0's service manager, as on an installed system (wex-session0-services.service starts it at boot): a session
+# forwards service calls to it (F1) and fails them while it is not running, never serving them itself. A program of
+# session 0 starts it; it then runs as long as session 0's server.
+s0_run() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null) | tr -d '\r'; }
+# a live services.exe of the running session 0: a section's restore starts session 0's server again and can leave the
+# old server's services.exe behind (an orphan, or a zombie), which no session reaches; it started before the server
+s0_services_live() {
+    local p s server_start
+    for s in $(pgrep -u "$S0U" -f 'wineserver --session0'); do
+        grep -q '^State:.*Z' "/proc/$s/status" 2>/dev/null || { server_start=$(awk '{print $22}' "/proc/$s/stat"); break; }
+    done
+    [ -n "${server_start:-}" ] || return 1
+    for p in $(pgrep -u "$S0U" -f 'services\.exe'); do
+        grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null && continue
+        [ "$(awk '{print $22}' "/proc/$p/stat" 2>/dev/null || echo 0)" -ge "$server_start" ] && return 0
+    done
+    return 1
+}
+s0_services_up() {
+    s0_services_live && return 0
+    s0_run cmd.exe /c exit >/dev/null || true
+    local i; for i in $(seq 1 60); do s0_services_live && { sleep 2; return 0; }; sleep 1; done
+    fail "session 0's service manager did not start"
+}
 # A fresh session of the standard user whose system role services report: an earlier section's server must be gone
 # first, else the hold joins it, its services (already running) do not report again and wait_files times out
 svc_session_start() {
+    s0_services_up
     prefix_server_env "$STD" -k 2>/dev/null || true; prefix_server_env "$STD" -w 2>/dev/null || true
     rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
     hold_start
@@ -1106,9 +1135,10 @@ true; ); section_leave $?; fi
 echo "--- system role (C3)"
 SVCDIR=/tmp/wexsvc
 SVCEXE='Z:\\var\\lib\\wexsys-c2\\probes\\wexsvc.exe'
-add_service WexSvcSys 'LocalSystem' sys 2
-add_service WexSvcLs 'NT AUTHORITY\\LocalService' ls 2
-add_service WexSvcNs 'NT AUTHORITY\\NetworkService' ns 2
+# the session's own services (every session runs them): what C3 checks is a session's system role
+add_service WexSvcSys 'LocalSystem' sys 2 '' 1
+add_service WexSvcLs 'NT AUTHORITY\\LocalService' ls 2 '' 1
+add_service WexSvcNs 'NT AUTHORITY\\NetworkService' ns 2 '' 1
 add_service WexSvcBad 'wexstd' bad 3
 add_service WexSvcTbl 'LocalSystem' tbl 3   # demand start: the Services snap-in survey (svc_table)
 add_service WexSvcFa 'LocalSystem' fa 3     # demand start: the Recovery page's rule (B119 item 1)
@@ -1180,6 +1210,7 @@ C3_USERS="${WEX_C3_USERS:-$STD $ADM}"; [ "$C3_USERS" != - ] || C3_USERS=""   # W
 for u in $C3_USERS; do
     case "$u" in "$STD") C3_SEC=c3_std ;; *) C3_SEC=c3_adm ;; esac
     if section "$C3_SEC"; then set +e; ( section_enter
+    s0_services_up   # the user's calls on session 0's services (WexSvcBad) go there (F1)
     rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
     echo "--- system role: $u"
     probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
@@ -1634,12 +1665,13 @@ if section svc_table_elev; then set +e; ( section_enter
     echo "--- service manager survey as an elevated administrator (svc_table_elev)"
     svc_session_start
     el_clean; touch "$EL/approve.all"
-    run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"
-    run_as "$ADM" cp "$ROOT/probes/rolesprobe64.exe" "/home/$ADM/wexel/rolesprobe.exe"
+    # the administrator's copy of the probe, where session 0 can read it: the service it creates (WexSvcMine, its own
+    # image) is session 0's, and session 0's service manager starts it there (F1), not in the administrator's session
+    run_as "$ADM" install -m 0755 "$ROOT/probes/rolesprobe64.exe" "$EL/rolesprobe.exe"
     for variant in "WexSvcTbl -" "WexSvcMine create"; do
         set -- $variant; svcname=$1; mode=$2
         outf="$EL/svc-elev-$svcname.txt"; rm -f "$outf"
-        OUT="$(bprobe "$ADM" 64 runcmd "$(winpath /home/$ADM/wexel/rolesprobe.exe)" "svc-table $svcname $mode $(winpath "$outf")" 0)"
+        OUT="$(bprobe "$ADM" 64 runcmd "$(winpath "$EL/rolesprobe.exe")" "svc-table $svcname $mode $(winpath "$outf")" 0)" || true
         grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "the elevated survey of $svcname did not run"; }
         tr -d '\r' < "$outf" > "/var/tmp/wex-run/svc-table-elevated-$svcname.txt"
         echo "== elevated administrator 64: $svcname"; grep '^row|' "/var/tmp/wex-run/svc-table-elevated-$svcname.txt"
@@ -1654,6 +1686,77 @@ if section svc_table_elev; then set +e; ( section_enter
         ok "svc_table_elevated_administrator_$svcname"
     done
     hold_stop
+true; ); section_leave $?; fi
+
+# ---- 8d. F1: service and driver configuration through session 0's service manager, as the caller ----------------
+# docs/REGISTRY_CHANNEL_SYSTEM_ROLE.md, F1. A session forwards every configuration call (create, change, delete), for
+# drivers and the session's own services too, to session 0's service manager as the caller; session 0 checks the
+# caller and writes the key. The elevated administrator's create of a service and of a kernel driver reaches session 0
+# and the session sees the service; a standard user's is refused; a change and a delete go through session 0. Fail
+# closed: a session whose services.exe started while session 0's service manager was down fails a create (1722) and
+# writes nothing, and forwards once session 0's service manager is up (B128: it used to serve them itself).
+if section f1_svc_config; then set +e; ( section_enter
+    echo "--- F1: configuration through session 0's service manager (f1_svc_config)"
+    svc_session_start
+    el_clean; touch "$EL/approve.all"
+    SCX='C:\windows\system32\sc.exe'
+    SVCKEY='HKLM\System\CurrentControlSet\Services'
+    elsc() { bprobe "$ADM" 64 runcmd "$SCX" "$1" "${2:-0}"; }   # the elevated administrator's sc.exe and its exit code
+    s0_has() { s0_run sc.exe query "$1" | grep -q "^SERVICE_NAME: $1\$"; }
+    key_seen() { wine_as "$STD" reg.exe query "$SVCKEY\\$1" 2>/dev/null | tr -d '\r' | grep -qi "services\\\\$1"; }
+    # (the section stops at any failing command: expected failures carry || true, and an OUT that a check reads too)
+    for s in WexF1Svc WexF1Drv WexF1Std WexF1Late; do s0_run sc.exe delete $s >/dev/null || true; done
+
+    OUT="$(elsc 'create WexF1Svc binPath= C:\windows\system32\notepad.exe start= demand')" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the elevated administrator's create failed"; }
+    s0_has WexF1Svc || fail "F1: the elevated administrator's service is not in session 0's service manager"
+    ok f1_elevated_service_create_is_session0s
+
+    OUT="$(elsc 'create WexF1Drv type= kernel binPath= C:\windows\system32\drivers\wexf1.sys start= demand')" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the elevated administrator's driver create failed"; }
+    s0_has WexF1Drv || fail "F1: the elevated administrator's driver is not in session 0's service manager"
+    OUT="$(elsc 'query WexF1Drv')" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the administrator's session does not see the new driver"; }
+    ok f1_elevated_driver_create_is_session0s_and_the_session_sees_it
+
+    OUT="$(elsc 'description WexF1Drv WexF1Described')" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the driver's description could not be changed"; }
+    s0_run reg.exe query "$SVCKEY\\WexF1Drv" /v Description | grep -q WexF1Described ||
+        fail "F1: session 0's key does not have the driver's new description"
+    ok f1_driver_change_written_by_session0
+
+    RC=0; wine_as "$STD" "$SCX" create WexF1Std binPath= 'C:\windows\system32\notepad.exe' >/dev/null 2>&1 || RC=$?
+    [ "$RC" = 5 ] || fail "F1: the standard user's create returned $RC, not 5"
+    ! s0_has WexF1Std || fail "F1: the standard user's create reached session 0"
+    ok f1_standard_user_create_refused
+
+    for s in WexF1Svc WexF1Drv; do
+        OUT="$(elsc "delete $s")" || true
+        grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the elevated administrator's delete of $s failed"; }
+    done
+    sleep 2
+    for s in WexF1Svc WexF1Drv; do ! s0_has $s || fail "F1: $s is still in session 0 after its delete"; done
+    ok f1_elevated_delete_is_session0s
+
+    # fail closed: the administrator's session starts while session 0's service manager is down
+    hold_stop
+    prefix_server_env "$ADM" -k 2>/dev/null || true; prefix_server_env "$ADM" -w 2>/dev/null || true
+    pkill -u "$S0U" -f 'services\.exe' || true
+    for i in $(seq 1 50); do s0_services_live || break; sleep 0.2; done
+    ! s0_services_live || fail "F1: session 0's service manager did not stop"
+    probe "$ADM" 64 hold >/dev/null 2>&1 & AHOLD=$!
+    sleep 4
+    OUT="$(elsc 'create WexF1Late binPath= C:\windows\system32\notepad.exe start= demand' 1722)" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: a create without session 0's service manager did not fail with 1722"; }
+    ! key_seen WexF1Late || fail "F1: a create without session 0's service manager wrote the key"
+    ok f1_create_fails_closed_without_session0s_service_manager
+    s0_services_up
+    OUT="$(elsc 'create WexF1Late binPath= C:\windows\system32\notepad.exe start= demand')" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the session that started first does not forward"; }
+    s0_has WexF1Late || fail "F1: the late create is not in session 0's service manager"
+    elsc 'delete WexF1Late' >/dev/null || true
+    ok f1_a_session_that_started_first_forwards
+    kill "$AHOLD" 2>/dev/null; prefix_server_env "$ADM" -k 2>/dev/null || true
 true; ); section_leave $?; fi
 
 if section c4_unix; then set +e; ( section_enter

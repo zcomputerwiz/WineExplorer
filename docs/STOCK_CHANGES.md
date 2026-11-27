@@ -617,6 +617,28 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
   stopped and starts it on demand). Since batch 1139 `[WexAccountsServiceKeys]` also sets `ServiceSidType`=1 (unrestricted) for
   `wexaccounts`, so that services.exe puts NT SERVICE\wexaccounts into its token, which the server's check of the accounts pipe
   (B114, `claude/accounts-service-sid`) requires; the service stays an own-process service. Test: `s0_accounts_chain`.
+- **F1: service and driver configuration through session 0's service manager, as the caller (2026-11-27, B128).**
+  docs/REGISTRY_CHANNEL_SYSTEM_ROLE.md, F1. `server/protocol.def`, `server/session0.c`: a request `get_session0_use`
+  (reply: `client`, the server uses session 0; `server`, it is session 0), protocol version 999. `programs/services/forward.c`
+  (`forward_available`): a session forwards when its server uses session 0, as the server says, no longer when session 0's
+  `svcctl` pipe answered at the moment services.exe started; a session that started before session 0's service manager
+  served every service itself for its whole life, wrote their keys in session 0's machine registry as its system role and
+  started session-0-only services locally (B128). `forward_open_manager` fails closed: a call that needs session 0's service
+  manager waits up to 15 s for it, then fails with `RPC_S_SERVER_UNAVAILABLE`; `svcctl_OpenSCManagerW` does not wait, and
+  `manager_remote` connects at the first call that needs session 0. `programs/services/rpc.c`: a session's own service (a
+  driver, a built-in session service) is created, changed (`ChangeServiceConfigW`, `ChangeServiceConfig2W`), secured
+  (`SetServiceObjectSecurity`) and deleted in session 0 too, as the caller, with the access of the session's handle
+  (`session0_service_open`); the session then takes the configuration and the security descriptor from session 0's key
+  (`service_reload_config`), a new one is loaded there (`scmdatabase_load_service`), and `OpenServiceW` and
+  `QueryServiceObjectSecurity` of its instance check against session 0's descriptor as it is now.
+  `programs/services/services.c`: a forwarding session never writes a service's key (`save_service_config` refuses,
+  `scmdatabase_remove_service` leaves the key to session 0); `load_one_service` is the loading of one service, shared by
+  `scmdatabase_load_services`. `programs/services/Makefile.in` imports ntdll (the server request). Test: section
+  `f1_svc_config` of `scripts/test_sysrun_server.sh` (the elevated administrator's create of a service and of a kernel
+  driver reaches session 0 and the session sees the driver; a change is written by session 0; a standard user's create is
+  refused; deletes go through session 0; a session that started while session 0's service manager was down fails a create
+  with 1722 and writes nothing, then forwards). The suite's own system role services (`WexSvcSys`, `WexSvcLs`, `WexSvcNs`)
+  are marked `WexSessionService`=1: the sessions ran them only because forwarding had latched off.
 
 ## rpcrt4: the binding of a generic handle was leaked by every call (B109, 2026-11-25)
 - `dlls/rpcrt4/ndr_stubless.c` (`ndr_client_call`): `finally_ctx.hbinding` was filled from `hbinding` before the call began, when it
