@@ -237,7 +237,9 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
     the pipe's descriptor would refuse a limited administrator silently), so the request has a 5 s deadline (a
     watchdog cancels the read), an account has at most 4 connections at a time, and an account's refusal events are
     limited to 10 a minute. Test: a client that connects and sends nothing is dropped after the deadline.
-14. **Owed:** a test of a default-type administrator's install, when a fixture makes such a token.
+14. **Owed:** a test of a default-type administrator's install, when a fixture makes such a token; and a `c7_msi`
+    check that a refusal event carries the caller's SID (the event probe prints a record's first string only: the
+    next change to `scripts/eventlog-probe.c` adds the SID).
 11. **An existing case changes:** `c7_msi` asserts `elevation=2` for its 3138 action (deferred, no impersonation);
     under B that action is SYSTEM in session 0, so the case moves to the new section's expectations. As built, the
     tests are in `c7_msi` itself: the EXE and 32- and 64-bit DLL actions as SYSTEM in session 0 with a deferred
