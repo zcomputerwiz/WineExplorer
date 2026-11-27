@@ -62,6 +62,15 @@ system's library do something after creation that the application waits for?
   that did (window plus two posted messages) was dropped, its diff is outside the repository
   (`inputhost-adapter-window-experiment.diff`).
 
+* **The system dispatcher queue is only asked for, and there is none** (Windows 11, traces `wt-dq1.txt` and
+  `wt-dq2.txt`: slot 6 of the `Windows.System.DispatcherQueue` statics, `GetForCurrentThread`, on a factory the tracer
+  obtained, and the export `CreateDispatcherQueueController`). While a configuration object is created, `InputHost.dll`
+  calls `GetForCurrentThread` on the input thread; all five calls of a run return `S_OK` and no queue (the thread's
+  queue is the application's own, not the system's). `CreateDispatcherQueueController` is not called by anything in
+  the process in 30 seconds. So the library does not use a system dispatcher queue here, and a Wine module of our own
+  has no reason to ask for one. (A run that got as far as the page showed seven sites and seven configuration objects;
+  a configuration object made again for the same site does not ask.)
+
 Conclusion: nothing that the system's library does towards its caller after creation was found, so the start of the
 page load on Windows is not explained by this library. The next measurement belongs to the UI thread: which exported
 call wakes it just before the page load starts (an event set or a message posted, and from which thread).
