@@ -62,5 +62,26 @@ int main(int argc, char **argv)
     Sleep(1000);
     GetGUIThreadInfo(0, &gti);
     printf("after typing: focus %p, caret %p\n", gti.hwndFocus, gti.hwndCaret);
+    if (getenv("NP_SAVE"))
+    {
+        /* Ctrl+S, then report the window in front (a save dialog?) and the top-level windows of the Notepad process */
+        INPUT k[4] = {{0}};
+        char cls[96], title[128];
+        HWND fg;
+
+        k[0].type = INPUT_KEYBOARD; k[0].ki.wVk = VK_CONTROL;
+        k[1].type = INPUT_KEYBOARD; k[1].ki.wVk = 'S';
+        k[2] = k[1]; k[2].ki.dwFlags = KEYEVENTF_KEYUP;
+        k[3] = k[0]; k[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(4, k, sizeof(INPUT));
+        for (i = 0; i < 10; i++)
+        {
+            Sleep(2000);
+            fg = GetForegroundWindow();
+            cls[0] = title[0] = 0;
+            if (fg) { GetClassNameA(fg, cls, sizeof(cls)); GetWindowTextA(fg, title, sizeof(title)); }
+            printf("after Ctrl+S +%d s: foreground %p class %s title \"%s\"\n", (i + 1) * 2, fg, cls, title);
+        }
+    }
     return 0;
 }
