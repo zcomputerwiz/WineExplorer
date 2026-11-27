@@ -782,3 +782,29 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   - (b) The rest of the window: tab bar and status bar (compositor surfaces; Integration's area).
   - (c) Whether WineExplorer reports a build below 26100, or such a value only for Windows App SDK apps. That is a product decision
     for Session 0 and the owner. Memory has "no per-app build setting until the handler works"; it now works at 22631.
+
+## 2026-11-27 (later): per-app 23H2 override shipped; the remaining stall is an ALPC receive on the UI thread
+
+- Interim per owner (relayed by Session 0): `win11_23h2` for `Notepad.exe` through AppDefaults. Wine claude/appdefaults-win11-23h2
+  98fccfd7, WE claude/appdefaults-23h2-docs 744d4c84, batch 1149. Other programs keep the prefix's 10.0.19045.
+- Notepad with it (lab u13 + 51bb1a35): the first XAML timer tick runs. The page loaded in 1 of 5 runs (b45). The others (b46, b48,
+  b49, b50) stop after XAML's second Start.
+- Windows (wt-start2.txt): XAML's timer thread loops: Start, `WaitForMultipleObjects(1)`, wake, Start... Start #2 (69406) is followed
+  by the page load (Uri 69578, TabViewListView 73328). InputSite came after the page load in that run, so it isn't the trigger.
+- Wine b49: the same loop. Start #2 comes at 670.119. The UI thread notices the fired timer (WaitForSingleObject(timer, 0), re-arm,
+  park), then calls a **plain receive** on its ALPC client port 0xf0 (flags 0, no send, no timeout). It never returns, so the tick
+  never runs.
+  - That receive is made from the same code location the registrar's server thread (0168) uses for its receive loop.
+  - On Windows (wt-alpc.txt, 264 ALPC calls) the UI thread never does a plain receive. It only sends synchronous requests
+    (flag 0x20000) on its client ports.
+- Tried, not faithful: making the reply to a synchronous request visible only to its thread, so the wait packet on the port doesn't
+  fire.
+  - On Windows the ntdll alpc test shows the client port signaled already at association (`already_signaled` 1), the packet fires
+    after the reply, and the port stays signaled.
+  - The experiment is in a git stash in wine-followups (branch claude/alpc-sync-reply) and has been taken out of the lab tree.
+- Next: find why CoreMessagingXP's UI dispatcher takes its "receive on the port" path under Wine.
+  - Which wait packet's completion (or which state) sends it there, and what Windows does at the same point. Trace the UI thread's
+    associations with their targets on Windows (port handles 0x434/0x468/0x18...) next to the ALPC calls.
+  - Possibly Windows ALPC port waits behave differently from our "signaled when a message is queued" (for example, a port is
+    signaled only for messages the waiter could receive).
+- Lab: the guest disk filled with relay logs (79 GB); old logs were deleted, keep b46/b49/b50.
