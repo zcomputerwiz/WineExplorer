@@ -1103,6 +1103,7 @@ add_service WexSvcLs 'NT AUTHORITY\\LocalService' ls 2
 add_service WexSvcNs 'NT AUTHORITY\\NetworkService' ns 2
 add_service WexSvcBad 'wexstd' bad 3
 add_service WexSvcTbl 'LocalSystem' tbl 3   # demand start: the Services snap-in survey (svc_table)
+add_service WexSvcFa 'LocalSystem' fa 3     # demand start: the Recovery page's rule (B119 item 1)
 
 fact() { grep -m1 "^$2=" "$1" | cut -d= -f2-; }
 expect_fact()   # name file key want
@@ -1280,6 +1281,11 @@ for u in $C3_USERS; do
         expect_spass c3_set_service_object_security_by_the_system_role "$u" 64 svc-sd-set WexSvcLs
         expect_rpass c3_service_descriptor_that_was_set_applies "$u" 64 svc-start WexSvcLs allowed
         expect_rpass c3_other_services_keep_the_default_descriptor "$u" 64 svc-start WexSvcNs denied
+        # -- the Recovery page's rule without the UI (B119 item 1): a user with CHANGE_CONFIG and no START saves "Take No
+        #    Action" and is refused "Restart the Service" (5, nothing changed); with START the restart saves
+        expect_spass c3_failure_actions_descriptor_grants_change_config_not_start "$u" 64 svc-fa-grant WexSvcFa
+        expect_rpass c3_take_no_action_saves_and_restart_is_denied_without_start "$u" 64 svc-fa-run WexSvcFa
+        expect_spass c3_restart_failure_action_saves_with_start "$u" 64 svc-fa-run WexSvcFa full
 
         # -- a copy of a system program in a user directory gets no role; with the system group it is killed
         run_as "$u" install -d "/home/$u/usr"
@@ -1339,9 +1345,11 @@ for u in $C3_USERS; do
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
         hive_flush
-        # wine.inf gives the broker service a descriptor of its own (WexElevate), so the count is not 1 any more
+        # wine.inf gives the broker service a descriptor of its own (WexElevate) and the failure actions check gives
+        # WexSvcFa one: the services that have a saved descriptor are matched by key name, so another descriptor does
+        # not change this check
         [ "$(awk '/^\[/ { in_ls = ($0 ~ /Services.*WexSvcLs\]/) } in_ls && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 1 ] &&
-            [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 2 ] || fail "the service descriptor was not saved in the machine hive"
+            [ "$(awk '/^\[/ { in_s = (tolower($0) ~ /services.*(wexelevate|wexsvcls|wexsvcfa)\]/) } in_s && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 3 ] || fail "the service descriptor was not saved in the machine hive"
         ok c3_service_descriptor_saved_in_the_machine_hive
         rm -f "$SVCDIR"/*.txt
         probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!

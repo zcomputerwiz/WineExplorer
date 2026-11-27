@@ -13,6 +13,7 @@
 #include <string.h>
 
 static char answer[256];
+static int prompts;   /* the password prompts answered; printed on standard error with PAMAUTH_COUNT=1 */
 
 static int conv(int n, const struct pam_message **msg, struct pam_response **resp, void *data)
 {
@@ -24,7 +25,10 @@ static int conv(int n, const struct pam_message **msg, struct pam_response **res
     for (i = 0; i < n; i++)
     {
         if (msg[i]->msg_style == PAM_PROMPT_ECHO_OFF || msg[i]->msg_style == PAM_PROMPT_ECHO_ON)
+        {
             r[i].resp = strdup(answer);
+            prompts++;
+        }
     }
     *resp = r;
     return PAM_SUCCESS;
@@ -42,5 +46,6 @@ int main(int argc, char **argv)
     if (pam_start(argv[1], argv[2], &c, &h) != PAM_SUCCESS) return 2;
     rc = pam_authenticate(h, 0);
     pam_end(h, rc);
+    if (getenv("PAMAUTH_COUNT")) fprintf(stderr, "prompts=%d\n", prompts);
     return rc == PAM_SUCCESS ? 0 : 1;
 }
