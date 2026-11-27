@@ -190,6 +190,7 @@ c7_msi           c5_build           n   c7
 c7_s4            c5_build           n   c7
 c7_s2            c5_build           n   c7
 c7_s3            c5_build           n   c7
+c7_debuglog      c5_build           n   c7
 s0_base          -                  nl  s0
 s0_token         s0_base,c5_build   nl  s0
 s0_hive          s0_base            nl  s0
@@ -198,6 +199,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_logs          s0_base            n   s0
 s0_scmloop       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
 s0_accounts      s0_base,c5_build   n   s0
@@ -4626,6 +4628,31 @@ hive_flush
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
 true; ); section_leave $?; fi
 
+if section c7_debuglog; then set +e; ( section_enter
+# ntdll takes WINEDEBUGLOG from a new process's Windows environment only under /var/log/wineexplorer/ (session 0's
+# per-service logs): the block is the creator's, and an elevated process (or another account's) must not create or
+# append to a file its caller chose. Three creators put WINEDEBUGLOG=/tmp/... in the block: a limited process, an
+# elevated one (its child), and a limited caller of the broker (the elevated probe it starts); no file may appear.
+DL="/tmp/wexdbglog-$$-$RANDOM"
+rm -f "$DL".*
+as_wine "$ADM" cmd.exe /c "set WINEDEBUGLOG=$DL.limited&& cmd.exe /c echo x" >/dev/null || true
+el_up "$ADM"
+el_cmd c7_debuglog_elevated_cmd "$ADM" "set WINEDEBUGLOG=$DL.elevated&& cmd.exe /c echo x"
+el_clean
+PRB="$(winpath "$ROOT/probes/wexelevate_probe64.exe")"
+run_as "$ADM" "$BUILD/wine" cmd.exe /c "set WINEDEBUGLOG=$DL.broker&& $PRB shexec runas $PRB 0 $(winpath $EL/out.dl) -" \
+    > "$ROOT/dl.log" 2>&1 & DLP=$!
+shown="$(wait_shown)" || { cat "$ROOT/dl.log" >&2; fail "debuglog: no consent window for the broker case"; }
+touch "${shown%.shown}.approve"
+wait "$DLP" || true
+tr -d '\r' < "$ROOT/dl.log" | grep -q '^shexec=PASS' || { cat "$ROOT/dl.log" >&2; fail "debuglog: the elevated probe did not run"; }
+el_down "$ADM"
+for k in limited elevated broker; do
+    [ ! -e "$DL.$k" ] || { ls -la "$DL.$k" >&2; rm -f "$DL".*; fail "debuglog: the $k case created $DL.$k from the environment block"; }
+done
+ok c7_debuglog_block_cannot_choose_a_log_outside_wineexplorer
+true; ); section_leave $?; fi
+
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.
 if [ "$SEC_S0" = 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e s0_x0; then
@@ -5797,6 +5824,27 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+if section s0_logs; then set +e; ( section_enter
+# session 0's services.exe gives each service WINEDEBUGLOG=/var/log/wineexplorer/services/NAME.log; ntdll opens it as
+# the service's stderr (the installed image's tmpfiles.d makes the folder, session 0's account's only). The folder
+# is made here when the machine has none, and removed again.
+LOGD=/var/log/wineexplorer/services; MADE_LOGD=
+if [ ! -d "$LOGD" ]; then MADE_LOGD=1; install -d -m 0755 /var/log/wineexplorer; install -d -m 0700 -o "$S0U" -g "$S0U" "$LOGD" ||
+    install -d -m 0700 -o "$S0U" "$LOGD"; fi
+s0_logs_done() { s0_wine sc stop wuauserv >/dev/null || true; [ -z "$MADE_LOGD" ] || rm -rf /var/log/wineexplorer; }
+s0_wine sc start wuauserv >/dev/null || true
+for i in $(seq 1 20); do WP="$(pgrep -u "$S0U" -f wuauserv | head -1)"; [ -n "$WP" ] && break; sleep 0.5; done
+[ -n "$WP" ] || { s0_logs_done; fail "s0_logs: wuauserv does not run in session 0"; }
+FD2="$(readlink "/proc/$WP/fd/2")"
+grep -qx 'WINEDEBUGLOG=/var/log/wineexplorer/services/wuauserv.log' <(tr '\0' '\n' < "/proc/$WP/environ") ||
+    { tr '\0' '\n' < "/proc/$WP/environ" | grep WINEDEBUG >&2; s0_logs_done; fail "s0_logs: wuauserv has no WINEDEBUGLOG"; }
+[ "$FD2" = "$LOGD/wuauserv.log" ] || { s0_logs_done; fail "s0_logs: wuauserv's stderr is [$FD2], not its log"; }
+[ "$(stat -c '%U %a' "$LOGD/wuauserv.log")" = "$S0U 600" ] ||
+    { stat -c '%U %a' "$LOGD/wuauserv.log" >&2; s0_logs_done; fail "s0_logs: the service's log is not its account's, 0600"; }
+s0_logs_done
+kill_servers
+ok st_session0_services_write_their_own_logs
 true; ); section_leave $?; fi
 if section s0_scmloop; then set +e; ( section_enter
 # B109: the calls that a session forwards to session 0 (T5.4) failed with 1722 after hours of uptime with many elevated

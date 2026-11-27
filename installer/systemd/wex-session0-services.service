@@ -28,7 +28,8 @@ Environment=HOME=/var/lib/wineexplorer/machine
 Environment=WINEDEBUG=-all
 Environment=WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
 # an administrator's settings for diagnosing session 0 (WINEDEBUG=err+all,+exec for example), then
-# "systemctl restart wex-session0": they override the lines above
+# "systemctl restart wex-session0": they override the lines above. logrotate checks the logs' size once a day only:
+# a heavy channel (+relay) can fill /var/log before then, so remove such settings when the diagnosis is done
 EnvironmentFile=-/etc/wineexplorer/session0.env
 # what wineboot and services.exe write; each service writes its own file in /var/log/wineexplorer/services
 # (services.exe gives it WINEDEBUGLOG). Root's folder (tmpfiles.d wex-session0.conf), rotated by logrotate.

@@ -5228,7 +5228,10 @@ Wine `claude/session0-service-logs` (one commit on development):
   environment sends the process's debug output (fd 2) to that file, appended, created 0600 by the process's own
   account, `O_NOFOLLOW`. Unset or relative: nothing changes.
 - `dlls/ntdll/unix/process.c` (`get_debug_log_var`, `spawn_process`): like `WINEDEBUG`, a `WINEDEBUGLOG` in the new
-  process's Windows environment is put into its Unix environment (a child otherwise inherits only the parent's).
+  process's Windows environment is put into its Unix environment (a child otherwise inherits only the parent's),
+  but only a path under `/var/log/wineexplorer/` with no `..` component: the block is the creator's and the new
+  process may run as another account (the broker, runas), which must not create or append to a file its caller
+  chose. Exact spelling only (a variant is ignored).
 - `programs/services/services.c` (`service_log_environment`, `service_start_process`): in session 0 each service
   process gets `WINEDEBUGLOG=/var/log/wineexplorer/services/<name>.log` (name limited to letters, digits, `-`, `_`,
   `.`; shared processes by their group name), and services.exe's `WINEDEBUG` is copied into the services' block.
@@ -5238,4 +5241,6 @@ WineExplorer side: `wex-session0-services.service` appends the unit's own output
 `tmpfiles.d/wex-session0.conf` makes `/var/log/wineexplorer` (0755), the log (0600) and `services/` (wexsys, 0700);
 `/etc/logrotate.d/wex-session0` rotates both weekly or at 20 MB (copytruncate). Checked in a VM of the test ISO:
 every session 0 service (lsass, winedevice, wexpolicy, wexmsiserver, wexaccounts, plugplay, eventlog's svchost) had
-its fd 2 on its own file and `WINEDEBUG` from session0.env; user sessions unchanged.
+its fd 2 on its own file and `WINEDEBUG` from session0.env; user sessions unchanged. Suite: `s0_logs` (a session
+0 service's stderr is its own 0600 file), `c7_debuglog` (`WINEDEBUGLOG=/tmp/...` in the block of a limited
+process, an elevated one and a broker caller creates no file).
