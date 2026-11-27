@@ -70,8 +70,12 @@ password later by `passwd(1)` would never leave the group. A root-run piece keep
    default=ignore] pam_unix.so nullok`: an empty-field member gets in without a prompt, a member with a password must type it,
    others fall through to `common-auth`. Only that service keeps `nullok`. `pam-auth-update` runs without `--force` and the script
    dies with its message when it refuses. `wex-blank-pam.sh undo` puts Debian's profile back.
-   - **The screen locker (G5):** the session has no lock screen yet (`Lock Computer` is not built). When it is, it must call a PAM
-     service with the same `pam_succeed_if` line and no `nullok`, or a blank user could not unlock it.
+   - **The screen locker (G5), settled 2026-11-27:** there is no separate locker. Win+L and Lock Computer call LightDM's
+     `Seat.Lock` (`docs/WAYLAND_DEFAULT.md`, both sessions), which shows our `logonui` greeter, so a blank user unlocks through
+     the same `lightdm` service as at logon and no further PAM service is needed. Read on a guest: `lightdm-autologin` and
+     `lightdm-greeter` are `pam_permit` (no password path) and no other service has `nullok`. If the locker is ever replaced
+     (ext-session-lock in wexcomp, GDM's `gdm-password`), the new service needs the same pair and no `nullok`. The VM check is
+     `safe-mode.sh` phase `blanklock` (stage `blanklock=blanklock`), written, not yet run.
    - A member who has a password and types it wrong is asked **once** (measured with `scripts/pamauth.c`, `PAMAUTH_COUNT=1`: the
      pair's `pam_unix` keeps the first answer for `common-auth`), so there is no double prompt.
 5. **Windows side** (black-box check of a Windows 11 host, 2026-11-26, registry and `net accounts` reads only: `Lsa\LimitBlankPasswordUse`
