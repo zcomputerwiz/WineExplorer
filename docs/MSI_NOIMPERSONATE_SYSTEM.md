@@ -228,7 +228,10 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
     session's own server (measured: an elevated `sc start wexmsiserver` reported RUNNING while session 0's stayed
     STOPPED), which is of no use and is a bug of its own, reported. A busy pipe is retried (`WaitNamedPipe`); every
     other failure (no answer, a broken connection, a refusal by the gate, a host that ends during an action) fails
-    the action and the install rolls back. Tests: `c7_msi` ends the host while a DLL action holds, and stops the
+    the action and the install rolls back. Only "not found" on session 0's `svcctl` means no session 0: any other
+    answer (busy, access denied) counts as session 0 present (fail closed). A user's server without a session link
+    gets access denied from the bridge for `wexmsiserver`, so its elevated per-machine installs fail rather than run
+    the actions as the user. Tests: `c7_msi` ends the host while a DLL action holds, and stops the
     service before an install: both installs return 1603 and no action runs as the user.
 13. **The service's limits** (the reviewer): any authenticated caller may connect (so that every refusal is logged:
     the pipe's descriptor would refuse a limited administrator silently), so the request has a 5 s deadline (a

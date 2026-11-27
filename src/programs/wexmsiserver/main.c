@@ -302,7 +302,9 @@ static struct caller_slot *slot_acquire( const WCHAR *sid )
     for (i = 0; i < ARRAY_SIZE(slots); i++)
     {
         if (slots[i].sid[0] && !wcscmp( slots[i].sid, sid )) { slot = &slots[i]; break; }
-        if (!free_slot && !slots[i].active && GetTickCount() - slots[i].window > 60000) free_slot = &slots[i];
+        /* free: never used (whatever the uptime: the service starts at boot), or idle for a minute */
+        if (!free_slot && !slots[i].active && (!slots[i].sid[0] || GetTickCount() - slots[i].window > 60000))
+            free_slot = &slots[i];
     }
     if (!slot && (slot = free_slot))
     {
