@@ -418,6 +418,41 @@ session (session 0 as owner: the session of the peer's link; a user's server as 
 thread's effective token (its impersonation token, else the process's) and refuses an impersonation token below
 `SecurityImpersonation` with `STATUS_BAD_IMPERSONATION_LEVEL` before describing anything.
 
+### Link-bound tokens: what session 0 believes (B132, 2026-11-27)
+
+Before this, only the user SID of a user's server's description was bound to the link's account (T1); groups,
+privileges, integrity and elevation were believed, and a service-account user (SYSTEM, LocalService,
+NetworkService) passed as it was. So a session's system role (SYSTEM inside the user's own server, under the user's
+uid) was SYSTEM in session 0, with Administrators enabled and System integrity, and passed every SYSTEM-only access
+check of a session 0 service (reproduced on master: suite section `s0_hardening`, eventlog-probe's `tokenview`).
+Now, in session 0 (`session0.c`, `link_policy`, called by `link_bound_token`; not in development mode):
+
+- **The system role is the account.** A described service-account user is replaced by the uid's own account SID
+  (`accounts_own_sid`); the service SID stays only as a deny-only group (a deny ACE still matches, an allow ACE no
+  longer does), and the token gets INTERACTIVE, as the user's own limited token has. Without an account record the
+  token is refused. This holds for administrators' servers too: SYSTEM in someone's session is never session 0's
+  SYSTEM; the consented paths (the broker, the MSI host) are the way there.
+- **Truth per group: session 0's accounts record**, looked up at every build (`lookup_account`, `accounts_own_domain`;
+  no cache, so a demoted account loses it at its next link or open; tokens already built are copies and are not
+  revisited). An administrator's own description (not a mapped system role) is believed as described, its limited
+  token and the broker's elevated one alike (T1). Every other description is cut as UAC's filtered token is:
+  - every BUILTIN alias but Users (545) and Guests (546) deny-only: the record models only Administrators (the admin
+    group, Domain Admins), so Backup Operators and the others cannot be verified yet (a documented limitation);
+  - domain groups kept only when verified (a domain record's recorded groups, or 513 of the account's own domain, its
+    primary group), never Domain, Schema or Enterprise Admins;
+  - a mapped token's SERVICE and per-service (S-1-5-80-*) groups deny-only;
+  - privileges: a standard user's (SeChangeNotify, SeShutdown, SeUndock, SeIncreaseWorkingSet, SeTimeZone; a TODO
+    reads LSA's rights assignment for verified groups);
+  - integrity at most Medium; elevation Limited for an administrator's mapped token, else Default;
+  - the owner reset to the user when it is no longer an enabled group (BA, or SY after the mapping); the default
+    DACL as described.
+- Session 0 logs each uid once per kind (its system role mapped; its description limited).
+- **Not in this change:** the registry channel (`start_registry_client`, `create_bound_token`) still gives a session's
+  system role session 0's HKLM as described. The same hole, worse; tracked as its own bug (a decision of the owner's,
+  since T1 made it so).
+- The EventLog service's test operation `WEX_EVTLOG_TOKENVIEW` answers only while session 0's EventLog key has
+  `WexTestOps` = 1 (the suite sets and removes it); it reports only the caller's own token and a fixed check.
+
 ### Subscriptions and tries (condition 2)
 
 - **Level-triggered with one notice outstanding.** A subscription is armed by `SUBSCRIBE` and by every `TRY`. An

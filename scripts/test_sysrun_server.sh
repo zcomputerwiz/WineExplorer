@@ -5512,6 +5512,11 @@ install -m 775 -o root -g "$GRP" "$ROOT/probes/evh64.exe" "$M/drive_c/windows/sy
 sysrole_of() { local u="$1"; shift; run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r' || true; }
 s0_wine sc start EventLog >/dev/null || true
 for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q RUNNING && break; sleep 0.5; done
+# the service's test operation is on only while this value is set (removed at the end of the section)
+EVKEY='HKLM\System\CurrentControlSet\Services\EventLog'
+[ "$(sysrole_of "$STD" tokenview | v tokenview)" = 1 ] ||
+    fail "hardening: the event log's test operation answers without its switch"
+s0_wine reg add "$EVKEY" /v WexTestOps /t REG_DWORD /d 1 /f >/dev/null || fail "hardening: cannot set WexTestOps"
 H_STD="$(sysrole_of "$STD" tokenview)"; H_STDC="$(sysrole_of "$STD" caller)"
 H_ADM="$(sysrole_of "$ADM" tokenview)"; H_ADMC="$(sysrole_of "$ADM" caller)"
 mv -f "$M/drive_c/windows/system32/winedevice.exe.hdorig" "$M/drive_c/windows/system32/winedevice.exe"
@@ -5543,6 +5548,7 @@ echo "hardening: $ADM elevated: $H_EL"
 [ "$(v user <<<"$H_EL")" = "$ADM_SID" ] && [ "$(v ba <<<"$H_EL")" = enabled ] && [ "$(v integrity <<<"$H_EL")" = 3000 ] &&
     [ "$(v class <<<"$H_EL")" = 2 ] || fail "hardening: the elevated administrator lost what it has: $H_EL"
 ok st_hardening_the_elevated_administrator_keeps_administrators
+s0_wine reg delete "$EVKEY" /v WexTestOps /f >/dev/null || fail "hardening: cannot remove WexTestOps"
 kill_servers
 true; ); section_leave $?; fi
 if section s0_accounts; then set +e; ( section_enter
