@@ -666,3 +666,24 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   a one-handle NtWaitForMultipleObjects with a zero timeout and loops; under Wine the same thread blocks in an infinite one-handle wait and the loop stops.
   Compare the two threads' startup (Windows: thread 0x8278 in the TTD trace, a long sequence of event creations, sections and CreateDevice2).
 - Other apps tried: Get Help, Clock, Paint (managed or UWP, they fail before CoreMessagingXP).
+
+## 2026-11-27: after InputSite, InputHost's system DispatcherQueue (Wine branch claude/coremessaging-dq 9464442f)
+
+- The compositor clock is not the gate. On the Windows 11 host under the tracer, Notepad calls DCompositionWaitForCompositorClock once in 25 s
+  and its page still loads (Integration confirmed it isn't changing dlls/dcomp).
+- What Windows does between InputSite and the page load (trace wt-nomouse.txt, exported calls; UI thread 52708, input thread 40340):
+  - 21938: the input thread activates InputSite (called from the system FrameworkUdk).
+  - For each of the three sites, InputHost.dll calls back into FrameworkUdk, which activates ActivationConfigurationInputObject. Then
+    **InputHost.dll itself activates `Windows.System.DispatcherQueue`** (IDispatcherQueueStatics {a96d83d7}).
+  - From 23016: the system CoreMessaging window on the input thread (SystemUserAdapterWindowClass) dispatches about 40 posted 0x60 messages
+    (wParam 0x80000005, lParam 4). CoreMessaging.dll sets an event every ~31 ms.
+  - 22250 the UI thread activates PropertyValue/Uri, 25454 Microsoft.ui.xaml sets a CoreMessaging event, 26375 the TabView templates load.
+- Wine b41 (u13, inputhost module, WINE_CM_REARM=1): the sites and configuration objects are created as on Windows. No
+  `Windows.System.DispatcherQueue` activation follows: Wine's coremessaging didn't have the class. Then both threads go idle.
+- Done: Windows.System.DispatcherQueue in Wine's coremessaging (GetForCurrentThread, current/dedicated queues on a message-only window,
+  priorities, timers, shutdown). coremessaging tests pass on Wine x86_64 and i386 and on the Windows 11 host. Taken for batch 1148;
+  STOCK_CHANGES on claude/ctfimm-tim-pin 8e398b70. Applied in the lab's u13 tree.
+- Next: the InputSite session's inputhost gets the input thread's queue like InputHost does and posts its work there. What that work is (calls on
+  Notepad's host or island objects) comes from an _O/_I trace (owner allowed it on 2026-11-27). Then rerun Notepad (b42) with WINE_CM_REARM=1.
+- Lab trap: after a rebuild that regenerates makefiles, a copied ldr-prefix runs `wineboot -u` and hangs with u13. Write `disable` into the
+  copy's `.update-timestamp` (scratchpad dq-build.sh).
