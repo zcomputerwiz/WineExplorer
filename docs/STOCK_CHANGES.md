@@ -1,5 +1,19 @@
 # Changes to stock Wine / third-party code
 
+## server: the reply to a synchronous ALPC request goes to its thread only (UWP, Wine branch `claude/alpc-sync-reply` 74e1c977, 2026-11-27)
+
+* `server/alpc.c`: a request sent with `ALPC_MSGFLG_SYNC_REQUEST` remembers its thread, and so does its reply. Only that thread
+  receives the reply, and only that thread's wait finds the port signaled for it. Before, the reply made the port signaled for every
+  waiter, including wait completion packets (which test the object with no waiting thread).
+* Measured on Windows 11: on a waitable port (`ALPC_PORFLG_WAITABLE_PORT` 0x40000, which CoreMessagingXP uses for its connections)
+  the port isn't signaled while nothing waits, and a wait completion packet on it doesn't fire for the reply to a synchronous request.
+  A port without the flag is always signaled on Windows; Wine keeps "signaled when a message is queued" for those (unchanged).
+* Why: CoreMessagingXP keeps a wait packet on its UI thread's ALPC port. Under Wine the packet fired for the reply its own synchronous
+  call had already taken, and the dispatcher then waited forever in a receive. That cost Notepad its second timer tick and its page
+  load in 4 runs of 5. With the fix: 2 of 2 (lab, with the per-app 23H2 version below).
+* Test: `dlls/ntdll/tests/alpc.c` `test_alpc_messages` connects a waitable client and checks the port and the packet around a
+  synchronous request. Wine x86_64 and i386, and Windows 11 x64: 1840 tests, 0 failures.
+
 ## ntdll, wine.inf: Notepad.exe is told Windows 11 23H2 (workaround; UWP, Wine branch `claude/appdefaults-win11-23h2` 98fccfd7, 2026-11-27)
 
 * **Workaround, to be removed** when Wine handles the packet mode that the Windows App SDK's CoreMessagingXP uses from build
