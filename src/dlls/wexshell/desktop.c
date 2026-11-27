@@ -34,6 +34,7 @@
 #include "exdisp.h"
 
 #include "wine/debug.h"
+#include "wine/internal_lock.h"
 #include "explorer_private.h"
 #include "resource.h"
 #include "restrictions.h"
@@ -686,7 +687,7 @@ static void wait_named_mutex( const WCHAR *name )
 {
     HANDLE mutex;
 
-    mutex = CreateMutexW( NULL, TRUE, name );
+    mutex = wine_create_internal_mutex( TRUE, name );  /* the same objects as explorer's (wine/internal_lock.h) */
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
         TRACE( "waiting for mutex %s\n", debugstr_w( name ));
