@@ -1738,6 +1738,45 @@ if section f1_svc_config; then set +e; ( section_enter
     for s in WexF1Svc WexF1Drv; do ! s0_has $s || fail "F1: $s is still in session 0 after its delete"; done
     ok f1_elevated_delete_is_session0s
 
+    # one descriptor (the reviewer's F1 rule 3): the elevated administrator sets a session service's descriptor
+    # (WexSvcNs, WexSessionService=1: the standard user's session runs its own instance) through session 0; the standard
+    # user's session then checks its own instance against it. SetServiceObjectSecurity is the probe's (Wine's sc sdset
+    # is a stub): svc-sd-set gives Authenticated Users SERVICE_START.
+    expect_rpass f1_session_service_default_descriptor_denies_start "$STD" 64 svc-start WexSvcNs denied
+    run_as "$ADM" install -m 0755 "$ROOT/probes/rolesprobe64.exe" "$EL/rolesprobe.exe"
+    OUT="$(bprobe "$ADM" 64 runcmd "$(winpath "$EL/rolesprobe.exe")" "svc-sd-set WexSvcNs" 0)" || true
+    grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the elevated administrator could not set WexSvcNs's descriptor"; }
+    s0_run reg.exe query "$SVCKEY\\WexSvcNs" /v Security | grep -q 'Security' ||
+        fail "F1: session 0's key has no descriptor for WexSvcNs"
+    expect_rpass f1_descriptor_set_through_session0_governs_the_session_instance "$STD" 64 svc-start WexSvcNs allowed
+
+    # the reviewer's rule 3 test on Spooler, a built-in session service: the elevated administrator sets its DACL
+    # through session 0 (SetServiceObjectSecurity), first letting Authenticated Users stop it, then denying them that;
+    # the standard user's session follows with its own instance, and session 0 and the session return the same DACL.
+    # The DACL is put back afterwards (the section's restore puts the hive back too).
+    RPW="$(winpath "$ROOT/probes/rolesprobe64.exe")"
+    dacl_of() { sed -n 's/^dacl=//p'; }
+    ORIG="$(s0_run "$RPW" svc-dacl-get Spooler | dacl_of)"
+    [ -n "$ORIG" ] || fail "F1: session 0 does not return Spooler's DACL"
+    ALLOW='D:(A;;0x2018d;;;AU)(A;;0x20;;;AU)(A;;0x201fd;;;SY)(A;;0xf01ff;;;BA)'
+    DENY='D:(D;;0x20;;;AU)(A;;0x2018d;;;AU)(A;;0x201fd;;;SY)(A;;0xf01ff;;;BA)'
+    elset() {
+        OUT="$(bprobe "$ADM" 64 runcmd "$(winpath "$EL/rolesprobe.exe")" "svc-dacl-set Spooler $1" 0)" || true
+        grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "F1: the elevated administrator could not set Spooler's DACL"; }
+    }
+    elset "$ALLOW"
+    expect_rpass f1_spooler_stop_allowed_by_a_descriptor_set_through_session0 "$STD" 64 svc-stop Spooler allowed
+    elset "$DENY"
+    expect_rpass f1_spooler_stop_denied_by_a_descriptor_set_through_session0 "$STD" 64 svc-stop Spooler denied
+    S0D="$(s0_run "$RPW" svc-dacl-get Spooler | dacl_of)"
+    USD="$(rprobe "$STD" 64 svc-dacl-get Spooler | dacl_of)"
+    echo "Spooler DACL: session 0 [$S0D], the standard user's session [$USD]"
+    case "$S0D" in *"(D;;"*) ;; *) fail "F1: session 0's Spooler DACL is not the one set ($S0D)" ;; esac
+    [ "$USD" = "$S0D" ] || fail "F1: the session's Spooler DACL is not session 0's"
+    ok f1_spooler_dacl_is_the_same_in_session0_and_the_session
+    elset "$ORIG"
+    [ "$(s0_run "$RPW" svc-dacl-get Spooler | dacl_of)" = "$ORIG" ] || fail "F1: Spooler's DACL was not put back"
+
     # fail closed: the administrator's session starts while session 0's service manager is down
     hold_stop
     prefix_server_env "$ADM" -k 2>/dev/null || true; prefix_server_env "$ADM" -w 2>/dev/null || true

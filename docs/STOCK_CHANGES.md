@@ -633,7 +633,9 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
   `QueryServiceObjectSecurity` of its instance check against session 0's descriptor as it is now.
   `programs/services/services.c`: a forwarding session never writes a service's key (`save_service_config` refuses,
   `scmdatabase_remove_service` leaves the key to session 0); `load_one_service` is the loading of one service, shared by
-  `scmdatabase_load_services`. `programs/services/Makefile.in` imports ntdll (the server request). Test: section
+  `scmdatabase_load_services`. A driver or session service made this way is in session 0's service database at once
+  (session 0's manager serves every service); `CreateService` starts nothing, and session 0 starts an auto-start one at the
+  next boot as before F1, when the key was in session 0's machine registry too: no instance starts that did not before. `programs/services/Makefile.in` imports ntdll (the server request). Test: section
   `f1_svc_config` of `scripts/test_sysrun_server.sh` (the elevated administrator's create of a service and of a kernel
   driver reaches session 0 and the session sees the driver; a change is written by session 0; a standard user's create is
   refused; deletes go through session 0; a session that started while session 0's service manager was down fails a create

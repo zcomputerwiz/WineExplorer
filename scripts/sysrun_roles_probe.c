@@ -629,6 +629,80 @@ static void svc_sd_set(const char *name)
     CloseServiceHandle(scm);
 }
 
+/* F1, one descriptor (the reviewer's rule 3):
+ *   svc-dacl-get NAME           print the service's DACL as "dacl=SDDL" (QueryServiceObjectSecurity)
+ *   svc-dacl-set NAME SDDL      set the service's DACL to SDDL (SetServiceObjectSecurity) and print it read back
+ *   svc-stop NAME allowed|denied  OpenService(SERVICE_STOP) and ControlService(STOP): allowed gets the handle (the stop
+ *                               itself may fail, the service need not run), denied fails the open with access denied */
+static void svc_dacl_get(const char *name)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;
+    char *sddl;
+
+    check(scm != NULL, "OpenSCManager works");
+    if (!scm) return;
+    svc = OpenServiceA(scm, name, READ_CONTROL);
+    check(svc != NULL, "OpenService(READ_CONTROL) works");
+    if (svc)
+    {
+        if (service_dacl(svc, &sddl)) printf("dacl=%s\n", sddl);
+        else check(0, "QueryServiceObjectSecurity returns the DACL");
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
+static void svc_dacl_set(const char *name, const char *sddl)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;
+    PSECURITY_DESCRIPTOR sd;
+    char *after;
+
+    check(scm != NULL, "OpenSCManager works");
+    if (!scm) return;
+    svc = OpenServiceA(scm, name, WRITE_DAC | READ_CONTROL);
+    check(svc != NULL, "OpenService(WRITE_DAC | READ_CONTROL) works");
+    if (svc)
+    {
+        BOOL built = ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl, SDDL_REVISION_1, &sd, NULL);
+
+        check(built, "build the DACL");
+        if (built)
+        {
+            check(SetServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, sd), "SetServiceObjectSecurity(DACL) works");
+            LocalFree(sd);
+        }
+        if (service_dacl(svc, &after)) printf("dacl=%s\n", after);
+        else check(0, "QueryServiceObjectSecurity returns the DACL");
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
+static void svc_stop(const char *name, const char *expect)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT), svc;
+    int want_allowed = !strcmp(expect, "allowed");
+    SERVICE_STATUS status;
+    DWORD err;
+    char what[160];
+
+    check(scm != NULL, "OpenSCManager works");
+    if (!scm) return;
+    SetLastError(0);
+    svc = OpenServiceA(scm, name, SERVICE_STOP);
+    err = GetLastError();
+    snprintf(what, sizeof(what), "OpenService(SERVICE_STOP) of %s is %s (error %lu)", name, expect, err);
+    check(want_allowed ? svc != NULL : (!svc && err == ERROR_ACCESS_DENIED), what);
+    if (svc)
+    {
+        err = ControlService(svc, SERVICE_CONTROL_STOP, &status) ? 0 : GetLastError();
+        printf("control_stop=%lu\n", err);
+        CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
 /* B119 (1), the Recovery page's rule without the UI: a restart failure action needs SERVICE_START on the handle (Wine's
  * test_failure_actions), "Take No Action" does not.
  *   svc-fa-grant NAME   (system role) Authenticated Users get read, query and SERVICE_CHANGE_CONFIG, not SERVICE_START
@@ -1208,6 +1282,9 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "scm-allowed")) scm_allowed();
     else if (!strcmp(mode, "svc-start") && argc > 3) svc_start(argv[2], argv[3]);
     else if (!strcmp(mode, "svc-sd-set")) svc_sd_set(arg);
+    else if (!strcmp(mode, "svc-dacl-get") && argc > 2) svc_dacl_get(argv[2]);
+    else if (!strcmp(mode, "svc-dacl-set") && argc > 3) svc_dacl_set(argv[2], argv[3]);
+    else if (!strcmp(mode, "svc-stop") && argc > 3) svc_stop(argv[2], argv[3]);
     else if (!strcmp(mode, "svc-fa-grant")) svc_fa_grant(arg);
     else if (!strcmp(mode, "svc-fa-run")) svc_fa_run(arg, argc > 3 && !strcmp(argv[3], "full"));
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
