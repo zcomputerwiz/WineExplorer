@@ -2,9 +2,9 @@
 
 # A session's system role and session 0's machine registry (design note)
 
-Status: draft 3, 2026-11-27, for the owner's decision. Docs only. Draft 2 (3e85e8d2) with the reviewer's second
-round worked in: service configuration goes to session 0's service manager with the caller's identity (F1, before
-P1), S1 decided per key, B108 on option B.
+Status: draft 4, 2026-11-27, for the owner's decision; the reviewer finds it ready. Docs only. Draft 3 (0b992d87)
+with the reviewer's F1 rules worked in (reads from session 0, fail closed, one security descriptor). Code review
+follows the owner's decision.
 
 ## The decision
 
@@ -112,8 +112,19 @@ Two gaps let the session's system role write `Services` through its registry cha
 **F1, before P1.** Every configuration call (create, change config and config2, delete, set security) goes to session
 0's service manager as the caller, for every service, drivers and session services included; a session's services.exe
 keeps only the running side of its own instances (start, stop, status) and reloads their configuration from session
-0's HKLM. `forward_mode` is not latched: a session whose server uses session 0 never falls back to serving machine
-services itself; while session 0 cannot be reached its calls fail. Without F1, P1 breaks service and driver installs.
+0's HKLM. Without F1, P1 breaks service and driver installs. Three rules go with it:
+
+- **Reads agree with the writes.** `Services` is not in `wex_session_key_match`, so a session's reads of
+  `HKLM\System\CurrentControlSet\Services` already go to session 0 (P3): the session's winedevice and built-in services
+  read the driver and service configuration F1 writes there, with no copy of their own.
+- **Fail closed, never latched.** With session 0 present but its svcctl pipe not reachable yet, a configuration call
+  waits and retries, then fails; it never falls back to the session writing locally as SYSTEM (the `WexSvcMine` path).
+  Serving every service locally stays only for a prefix without session 0, decided as `msi_syshost_connect` decides
+  it: the `WexSession0\svcctl` pipe is not found and session 0 is not present.
+- **One security descriptor.** The running side that stays in the session (start, stop and status of its own
+  instances) checks access against the service's security descriptor as session 0 holds it, the one F1 writes there,
+  not a session-local copy; `SetServiceObjectSecurity` through session 0 then governs who can stop a session's
+  Spooler.
 
 ## USER_HIVE
 
@@ -154,7 +165,10 @@ service-account SIDs outright.
   create) through its registry channel: succeeds before, refused after; session 0's `Services` unchanged.
 - (a2) After F1 and P1: an elevated wexadm's `sc create` (an own-process service and a kernel driver) from its session
   works and the service is visible in session 0's service manager; wexstd's is refused; an MSI with `ServiceInstall`
-  installs and uninstalls cleanly; a session whose services.exe started before session 0's pipe still forwards.
+  installs and uninstalls cleanly; a session whose services.exe started before session 0's pipe still forwards (or
+  fails), never writes locally; after an elevated `sc create` of a kernel driver, the session's winedevice sees the new
+  driver key, or loads the driver on its next start; a security descriptor set through session 0 on a session
+  service (Spooler) decides who can stop the session's instance.
 - (b) USER_HIVE with a service-account description (S-1-5-18, S-1-5-19): refused; `HKU\S-1-5-18` and
   `HKU\S-1-5-19` in session 0 unchanged.
 - (c) plugplay, winedevice (mountmgr: drives; ndis: adapters) and printing still work in a user's session; the full
