@@ -746,5 +746,39 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   windows never see (3,0) on Windows, but plain windows do. **Open: what makes Windows treat CoreMessagingXP's windows differently**
   (window class or styles, registration arguments: CoreMessagingXP calls 2669 with r8 0x7ffffffffffffffc and r9 0x41, the (5,5) callback,
   ...), and what such a window gets inside Drain2.
-- Next: give the probe window CoreMessagingXP's properties one at a time (class name and styles from a CreateWindowExW/RegisterClassExW
+- (Superseded by the next section.) Next: give the probe window CoreMessagingXP's properties one at a time (class name and styles from a CreateWindowExW/RegisterClassExW
   trace; 2669's third and fourth arguments) until Windows stops sending it (3,0). Then implement the CoreMessagingXP branch of Drain2.
+
+## 2026-11-27: the build number picks CoreMessagingXP's packet mode; at 22631 Notepad's page loads
+
+- Probe tests/uwp/alpc/cmxp-timer-probe.c:
+  - Loads the Windows App Runtime's CoreMessagingXP.dll into its own process and runs a Microsoft.UI.Dispatching DispatcherQueue on
+    its thread.
+  - Starts a zero-interval DispatcherQueueTimer from another thread. With `CMXP_BUSY`, the main thread pumps nothing for 700 ms, as
+    Notepad's UI thread did.
+  - Logs the Ticks and every message of CoreMessagingXP's window (DcppUserAdapterWindowClass). `CMXP_SUBCLASS` subclasses the
+    window; the hooks don't see the kernel's sends on Windows.
+- Windows 11 (26300): 3 Ticks of 3 Starts. The Tick runs inside CoreMessagingXP's own 0x60 handler: (5,5) or (1,0). That handler
+  re-arms the timer's packet, calls Drain2, flushes an SList, parks the timer and runs the Tick.
+  - No other message reaches the window. The keys, Drain2's pointer arguments and the SList stay unchanged (wintrace `_Y`/`_Z` key
+    dumps).
+- Wine with the prefix at the default (Windows 10) build: 3 Ticks.
+  - CoreMessagingXP associates its packets with key 0 and an **APC context**, so Wine's (8, apc) path delivers them.
+- Wine with the prefix at **26100** (what the Notepad runs used): **0 Ticks**. CoreMessagingXP switches to keyed packets with APC
+  context 0 (the 7-packet rounds).
+  - The server trace (`wineserver -d1`) shows set_timer expire 0 and association `already_signaled=1`, so the packet is queued.
+  - CoreMessagingXP makes the same calls in the handler (flush, associate, Drain2, flush) but never parks the timer or runs the Tick.
+  - Changing Drain2 doesn't help: nested (3,0) (fail-fast), silent removal, leaving the packets, or Wine's posted (1,0). Whatever
+    CoreMessagingXP reads on Windows is not visible from outside.
+  - Not it: Init2's third and fourth registers (left-over values), the KUSER_SHARED_DATA clocks (they advance in Wine, more coarsely),
+    nested messages.
+- **Notepad b45** (u13, server fix 51bb1a35, no WINE_CM_REARM, prefix at build **22631**): the page loads.
+  - TabViewListView, TabViewItem, TabsBarItem, templates, ToolTip, VisualStateManager, MenuBarItem, InputSite are activated.
+  - XAML's thread 0178 ends normally.
+  - CreateCaret 2, compositor clock 10, still no dcomp surfaces.
+  - Screenshot: the editor area is drawn (light) with the caret; title/tab bar and status bar are black.
+- Open:
+  - (a) Keyed mode (build 26100+): find what CoreMessagingXP reads to notice a completed keyed packet.
+  - (b) The rest of the window: tab bar and status bar (compositor surfaces; Integration's area).
+  - (c) Whether WineExplorer reports a build below 26100, or such a value only for Windows App SDK apps. That is a product decision
+    for Session 0 and the owner. Memory has "no per-app build setting until the handler works"; it now works at 22631.
