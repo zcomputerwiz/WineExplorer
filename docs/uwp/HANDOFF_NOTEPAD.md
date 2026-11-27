@@ -680,10 +680,19 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   - 22250 the UI thread activates PropertyValue/Uri, 25454 Microsoft.ui.xaml sets a CoreMessaging event, 26375 the TabView templates load.
 - Wine b41 (u13, inputhost module, WINE_CM_REARM=1): the sites and configuration objects are created as on Windows. No
   `Windows.System.DispatcherQueue` activation follows: Wine's coremessaging didn't have the class. Then both threads go idle.
-- Done: Windows.System.DispatcherQueue in Wine's coremessaging (GetForCurrentThread, current/dedicated queues on a message-only window,
-  priorities, timers, shutdown). coremessaging tests pass on Wine x86_64 and i386 and on the Windows 11 host. Taken for batch 1148;
-  STOCK_CHANGES on claude/ctfimm-tim-pin 8e398b70. Applied in the lab's u13 tree.
-- Next: the InputSite session's inputhost gets the input thread's queue like InputHost does and posts its work there. What that work is (calls on
-  Notepad's host or island objects) comes from an _O/_I trace (owner allowed it on 2026-11-27). Then rerun Notepad (b42) with WINE_CM_REARM=1.
+- Built: Windows.System.DispatcherQueue in Wine's coremessaging (claude/coremessaging-dq 9464442f; tests pass on Wine and the Windows 11
+  host; applied in the lab's u13 tree). **Not needed by Notepad**: the InputSite session measured that InputHost's GetForCurrentThread
+  returns S_OK and NULL, and nothing calls CreateDispatcherQueueController. Its _O/_I traces show InputHost makes no call on Notepad's
+  host objects after CreateForHost and posts nothing to the caller. Session 0 took the branch back out of batch 1148 (no consumer); it
+  stays pushed, for upstream.
+- The stall is on the UI thread, not in InputHost or the text box:
+  - Notepad's text thread (Windows 58832, Wine 019c) is the same in both: NotepadTextBox, RichEditD2DPT (2.4-2.7 s with OLE and TSF),
+    the same RichEdit messages, Notepad.exe's SetEvent, ShowWindow, GetMessage.
+  - Windows' UI thread before PropertyValue (22250): its own CoreMessagingXP rounds (posted (6,0) at 21954), TSF's WM_TIMER on its
+    MSCTF window (22000), two packet re-arms, then a Microsoft.ui.xaml SetEvent(0x4f8) at 22094 (same call site as at 6141, with
+    user32 on the stack then).
+  - Wine's UI thread runs the same kinds of rounds (six (6,0)) but never reaches that xaml SetEvent or PropertyValue/Uri.
+- Next: a focused Windows trace of the UI thread between InputSite and PropertyValue (waits, posts, sends, message retrievals), to find
+  which piece of work the xaml code runs on; then the matching point in Wine.
 - Lab trap: after a rebuild that regenerates makefiles, a copied ldr-prefix runs `wineboot -u` and hangs with u13. Write `disable` into the
   copy's `.update-timestamp` (scratchpad dq-build.sh).
