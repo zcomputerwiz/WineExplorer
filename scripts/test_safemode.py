@@ -504,8 +504,10 @@ class TestStartupCheck(TempDirTest):
         bin_dir.mkdir(exist_ok=True)
         self.lastgood_log = self.tmp / "lastgood.log"
         self.lastgood_log.unlink(missing_ok=True)
+        (self.tmp / "advanced.log").unlink(missing_ok=True)
         fakes = {
             "fake-lastgood": 'echo "$*" >> "$LASTGOOD_LOG"\n',
+            "fake-advanced": 'echo "$*" >> "$ADVANCED_LOG"\n',
             "pgrep": 'user=\nwhile [ $# -gt 1 ]; do\n    case "$1" in -u) user=$2; shift 2 ;; *) shift ;; esac\ndone\n'
                      'printf "%s\\n" "$FAKE_PROCS" | while IFS="|" read -r u cmd; do\n'
                      '    [ "$u" = "$user" ] && printf "%s\\n" "$cmd"\ndone | grep -Eq -- "$1"\n',
@@ -529,7 +531,8 @@ class TestStartupCheck(TempDirTest):
                "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
                "FAKE_PROCS": "\n".join(processes), "FAKE_SESSIONS": sessions, "FAKE_CLASS": session_class, "FAKE_TYPE": session_type,
                "FAKE_ACTIVE": active, "WEX_LASTGOOD_HELPER": str(bin_dir / "fake-lastgood"),
-               "LASTGOOD_LOG": str(self.lastgood_log), "WEX_MENU_START": str(self.menu_start)}
+               "LASTGOOD_LOG": str(self.lastgood_log), "WEX_MENU_START": str(self.menu_start),
+               "WEX_ADVANCED_OPTIONS": str(bin_dir / "fake-advanced"), "ADVANCED_LOG": str(self.tmp / "advanced.log")}
         result = subprocess.run(["sh", str(STARTUP_CHECK)], env=env, capture_output=True, text=True, timeout=30)
         counted = result.returncode == 0 and "counts as successful" in result.stdout
         return result.returncode, counted, result.stdout
@@ -569,6 +572,17 @@ class TestStartupCheck(TempDirTest):
         self.assertEqual(self.check(stage=True, active="wex-setup.service")[:2], (0, True))
         self.assertEqual(self.check(stage=True, active="wex-oobe.service")[:2], (0, True))
         self.assertEqual(self.check(stage=False, active="wex-setup.service")[:2], (1, False))
+
+    def test_a_successful_start_asks_for_the_failure_to_be_recorded(self):
+        """The failure of the generation a start fell back from is recorded as acknowledged only once the start
+        succeeded (wex-advanced-options --ack-failure); a start that does not finish records nothing."""
+        log = self.tmp / "advanced.log"
+        self.check(processes=[self.WELCOME])
+        self.assertEqual(log.read_text(encoding="ascii").split("\n")[0], "--ack-failure")
+        self.check()                                                          # no logon screen: a failed start
+        self.assertFalse(log.exists())
+        self.check(cmdline=self.VARIANT, mode="safe", processes=[self.WELCOME])   # a Safe Mode start counts nothing
+        self.assertFalse(log.exists())
 
     def test_no_logon_screen_is_a_failed_start(self):
         status, cleared, out = self.check()
@@ -1030,6 +1044,52 @@ class TestMenu(TempDirTest):
         self.assertEqual(failed(self.failing(1, "variant", variant="advanced")), 0)   # through the menu
         self.assertEqual(failed(self.failing(1, "recovery")), 0)
         self.assertEqual(failed(None), 0)
+
+    def falling_back(self, failed=3, fell_back=True, kind="generation", generation=2):
+        report = self.failing(0, kind, generation)
+        report["booted"].update(fell_back=fell_back, fell_back_from=failed, fell_back_attempts=3)
+        return report
+
+    def test_fell_back_from(self):
+        """A start the loader fell back to (`booted.fell_back`, Vintner Boot's docs/status.md) is due the failure
+        screen once: until the failure of that generation is recorded as acknowledged."""
+        self.menu.FELL_BACK_ACK = str(self.tmp / "var" / "ack")
+        fell = self.menu.fell_back_from
+        self.assertEqual(fell(self.falling_back()), 3)
+        self.assertIsNone(fell(self.falling_back(fell_back=False)))
+        self.assertIsNone(fell(self.falling_back(failed=None)))
+        self.assertIsNone(fell(self.falling_back(kind="variant")))
+        self.assertIsNone(fell(self.falling_back(kind="recovery")))
+        self.assertIsNone(fell(self.failing(0)))                              # an older vintner: no fields
+        self.assertIsNone(fell(None))
+        self.assertEqual(fell(self.falling_back(failed=4), acknowledged=3), 4)    # a newer failure is news again
+        self.assertIsNone(fell(self.falling_back(failed=3), acknowledged=3))
+
+    def test_the_failure_screen_for_a_fall_back_and_its_acknowledgement(self):
+        self.menu.FELL_BACK_ACK = str(self.tmp / "var" / "ack")
+        self.menu.PENDING = str(self.tmp / "pending")
+        calls = []
+        self.with_vintner(0, self.falling_back())
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"],
+                                 ["systemctl", "start", "wex-failure-screen.service"]])
+        self.assertIn("generation 3 did not start successfully", err.getvalue())
+        # the screen and the start going on do not record it; only the successful start does (--ack-failure)
+        self.assertFalse(os.path.exists(self.menu.FELL_BACK_ACK))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.menu.acknowledge_failure(run=self.recording_run([])), 3)
+        self.assertEqual(open(self.menu.FELL_BACK_ACK, encoding="ascii").read(), "3\n")
+        # the next start: Vintner still says fell_back, nothing is shown, nothing is recorded again
+        calls.clear()
+        self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        self.assertIsNone(self.menu.acknowledge_failure(run=self.recording_run([])))
+        # a start that is not a fall-back records nothing
+        os.remove(self.menu.FELL_BACK_ACK)
+        self.with_vintner(0, self.failing(0))
+        self.assertIsNone(self.menu.acknowledge_failure(run=self.recording_run([])))
+        self.assertFalse(os.path.exists(self.menu.FELL_BACK_ACK))
 
     def test_failure_check_respects_recovery_options_turned_off(self):
         # XP (measured 2026-11-12): "Time to display recovery options when needed" unchecked, a failed start shows no

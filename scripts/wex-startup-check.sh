@@ -20,6 +20,7 @@ bootmode=${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}
 stage=${WEX_BOOTMODE_SETUP_STAGE:-/etc/wineexplorer/setup/stage}
 lastgood=${WEX_LASTGOOD_HELPER:-/usr/local/sbin/wex-lastgood}
 menu_start=${WEX_MENU_START:-/var/lib/wineexplorer/menu-start}
+advanced=${WEX_ADVANCED_OPTIONS:-/usr/local/sbin/wex-advanced-options}
 limit=${WEX_STARTUP_TIMEOUT:-900}
 interval=${WEX_STARTUP_INTERVAL:-2}
 
@@ -79,6 +80,8 @@ done
 
 echo "$found is up after about $waited seconds: this start counts as successful"
 rm -f "$menu_start"
+# the failure of the generation this start fell back from was shown: record it only now that the start succeeded
+[ ! -x "$advanced" ] || "$advanced" --ack-failure || echo "could not record the acknowledged failure"
 # Setup's starts are not a configuration to go back to
 if [ ! -e "$stage" ]; then
     "$lastgood" save || echo "could not save the last known good configuration"

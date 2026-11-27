@@ -70,6 +70,7 @@ PLYMOUTH = os.environ.get("WEX_PLYMOUTH", "/usr/bin/plymouth")
 PENDING = os.environ.get("WEX_BOOTMODE_PENDING", "/var/lib/wineexplorer/next-bootmode")
 # A start through the menu that counts (any choice but a Safe Mode), until the start-up check sees it succeed
 MENU_START = os.environ.get("WEX_MENU_START", "/var/lib/wineexplorer/menu-start")
+FELL_BACK_ACK = os.environ.get("WEX_FELL_BACK_ACK", "/var/lib/wineexplorer/fell-back-ack")
 VARIANT = "advanced"     # installer/vintner/advanced.conf
 SAFE_MODES = ("safe", "safenet", "safecmd")
 KDSETMODE, KD_TEXT = 0x4B3A, 0x00   # linux/kd.h
@@ -227,6 +228,50 @@ def failed_starts(status):
     if booted.get("kind") != "generation" or not isinstance(count, int) or isinstance(count, bool):
         return 0
     return max(count, 0)
+
+
+def acknowledged_failure(path=None):
+    """The newest generation whose failure the user was already told about (FELL_BACK_ACK), or None."""
+    try:
+        with open(path or FELL_BACK_ACK, encoding="ascii", errors="replace") as f:
+            words = f.read().split()
+    except OSError:
+        return None
+    return int(words[0]) if len(words) == 1 and words[0].isdigit() else None
+
+
+def fell_back_from(status, acknowledged=None):
+    """The generation that failed to start when this ordinary start is the one the loader fell back to
+    (`booted.fell_back`, `fell_back_from`: Vintner Boot's docs/status.md), else None. Not for a start through the menu's
+    variant or a recovery start, and not for a failure the user was told about (FELL_BACK_ACK) and that started well
+    since: the status keeps the flag until a newer generation boots good. The start that fell back shows the failure
+    screen once: `booted.failed_attempts` is 0 there, because the booted generation was good."""
+    booted = (status or {}).get("booted") or {}
+    failed = booted.get("fell_back_from")
+    if booted.get("kind") != "generation" or booted.get("fell_back") is not True:
+        return None
+    if not isinstance(failed, int) or isinstance(failed, bool):
+        return None
+    if failed == (acknowledged_failure() if acknowledged is None else acknowledged):
+        return None
+    return failed
+
+
+def acknowledge_failure(run=subprocess.run):
+    """wex-startup-check.sh, once this start has succeeded (the logon screen is up): record that the failure of the
+    generation this start fell back from was shown ("failure G acknowledged", FELL_BACK_ACK). Only a start that
+    succeeds records it, so a start that does not finish shows the screen again at the next one. Returns the
+    generation, or None when there was nothing to record."""
+    failed = fell_back_from(vintner_status(run))
+    if failed is None:
+        return None
+    try:
+        atomic_write(FELL_BACK_ACK, f"{failed}\n", mode=0o644)
+    except OSError as error:
+        print(f"wex-advanced-options: failure {failed} not recorded: {error}", file=sys.stderr)
+        return None
+    print(f"wex-advanced-options: failure {failed} acknowledged", file=sys.stderr)
+    return failed
 
 
 def write_pending(mode, generation):
@@ -646,11 +691,15 @@ def failure_check(run=subprocess.run):
     the next start anyway. Returns the exit code; a failed check lets the start go on."""
     if os.path.exists(SETUP_STAGE):
         return 0
-    count = failed_starts(vintner_status(run))
+    status = vintner_status(run)
+    count = failed_starts(status)
     if count:
         print(f"wex-advanced-options: {count} earlier start(s) of this generation failed", file=sys.stderr)
     elif os.path.exists(MENU_START):
         print("wex-advanced-options: a start through the Advanced Options menu did not finish", file=sys.stderr)
+    elif fell_back_from(status) is not None:
+        print(f"wex-advanced-options: generation {fell_back_from(status)} did not start successfully; this one is the "
+              "fall-back", file=sys.stderr)
     else:
         return 0
     # Startup and Recovery's "Time to display recovery options when needed" unchecked (or 0): as on XP, no screen
@@ -712,6 +761,9 @@ def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     if args == ["--quit-plymouth"]:   # wex-plymouth-quit.service
         end_plymouth()
+        return 0
+    if args == ["--ack-failure"]:   # wex-startup-check.sh
+        acknowledge_failure()
         return 0
     if args == ["--failure-check"]:
         return failure_check()
