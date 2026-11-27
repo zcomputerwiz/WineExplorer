@@ -10,7 +10,7 @@
   A port without the flag is always signaled on Windows; Wine keeps "signaled when a message is queued" for those (unchanged).
 * Why: CoreMessagingXP keeps a wait packet on its UI thread's ALPC port. Under Wine the packet fired for the reply its own synchronous
   call had already taken, and the dispatcher then waited forever in a receive. That cost Notepad its second timer tick and its page
-  load in 4 runs of 5. With the fix: 2 of 2 (lab, with the per-app 23H2 version below).
+  load in 4 runs of 5. With the fix: 2 of 2 (lab, prefix at 10.0.19045).
 * Test: `dlls/ntdll/tests/alpc.c` `test_alpc_messages` connects a waitable client and checks the port and the packet around a
   synchronous request. Wine x86_64 and i386, and Windows 11 x64: 1840 tests, 0 failures.
 * Follow-up (Wine branch `claude/alpc-sync-reply-dead` 44892941): if the thread that sent a synchronous request no longer exists
@@ -18,36 +18,25 @@
   a thread that exits after its reply was queued still leaves that reply until the port closes, and Windows wasn't measured for
   this case. Test: ntdll alpc test, Wine x86_64 and i386, 0 failures.
 
-## ntdll, wine.inf: Notepad.exe is told Windows 11 23H2 (workaround; UWP, Wine branch `claude/appdefaults-win11-23h2` 98fccfd7, 2026-11-27)
+## ntdll: the version name win11_23h2, unused by default (UWP, Wine branch `claude/appdefaults-win11-23h2-off` 8a7764f9 on 98fccfd7, 2026-11-27)
 
-* **Workaround, to be removed** when Wine handles the packet mode that the Windows App SDK's CoreMessagingXP uses from build
-  26100 on (owner's decision 2026-11-27: per program as an interim, the real fix stays the goal).
 * `dlls/ntdll/version.c`: a new version name `win11_23h2`. It is 10.0.22631, with the Windows 11 suite and product type (workstation)
   and no CSD. It can be selected with `HKCU\Software\Wine\AppDefaults\<exe>\Version` like the other names.
-* `loader/wine.inf.in` (`[UserRegistry]` and `[CurrentVersion]`): `AppDefaults\Notepad.exe\Version` = `win11_23h2`. The flag keeps a
-  user's own value. Other programs keep the prefix's version (10.0.19045 as shipped).
-* Rule for further WinUI 3 apps: one `AppDefaults\<app>.exe\Version` line per app executable, added here and listed in this entry;
-  all of them are removed together when the 26100 packet mode works. Apps so far: `Notepad.exe`.
-* Why:
-  * From build 26100, CoreMessagingXP associates its wait packets with a key and APC context 0. Under Wine, a completed packet of
-    that kind is never noticed, so its DispatcherQueueTimer never ticks, and Notepad's page load waits for such a tick.
-  * Below 26100 it uses APC contexts, which Wine delivers.
-  * The probe that shows the gap is `tests/uwp/alpc/cmxp-timer-probe.c` (WineExplorer branch `claude/uwp-notepad-strips3` 930972b5):
-    with the prefix at 26100 it gets 0 Ticks under Wine and 3 on Windows 11.
-* Limits:
-  * Wine's AppDefaults match the file name only, so any program called `Notepad.exe` gets it. That includes Wine's classic Notepad
-    (harmless: it only reports 10.0.22631).
-  * Keying by package isn't possible here: the version is fixed in `version_init`, early in process start, before anything knows
-    the process's package identity.
-* Test:
-  * `dlls/ntdll/tests/rtl.c` `test_appdefaults_version` (Wine only): a copy of the test under a name with an AppDefaults entry
-    reports 10.0.22631, and the parent does not. Lab u13, x86_64 and i386: 600368/600369 tests, 0 failures.
-  * Lab, with the built `wine.inf`'s `UserInstall` section: a probe named `Notepad.exe` reports 10.0.22631, and the same probe named
-    `other.exe` reports 10.0.19045.
-* Effect on Notepad (lab u13 with Wine 51bb1a35):
-  * XAML's timer now ticks; its waiting thread no longer blocks forever.
-  * The page loaded in 1 run of 5 (with the prefix at 22631 in all of them, globally or per program). In the other runs the second
-    Start after InputSite never comes. That is the next item, and it doesn't depend on this setting.
+* Not set for any program. WineExplorer's shipped build is 10.0.19045, which is below 26100, so the Windows App SDK's CoreMessagingXP
+  already takes the packet mode that works under Wine. An AppDefaults line for Notepad.exe (98fccfd7) was taken out again (8a7764f9):
+  as shipped, it only made Notepad.exe report another version.
+* What made Notepad's page load was the ALPC synchronous-reply fix (entry above), not the version.
+* Rule: if the shipped build is ever raised to 26100 or later before Wine handles CoreMessagingXP's packet mode from 26100 on
+  (keyed packets with APC context 0, whose completion it never notices under Wine, so its DispatcherQueueTimer never ticks), add one
+  `AppDefaults\<app>.exe\Version` = `win11_23h2` line per WinUI 3 app executable to `loader/wine.inf.in` (`[UserRegistry]` and
+  `[CurrentVersion]`, flag 2 so that a user's own value stays), and remove them all together once that mode works. The probe that
+  shows the gap is `tests/uwp/alpc/cmxp-timer-probe.c` (WineExplorer branch `claude/uwp-notepad-strips3`): with the prefix at 26100 it
+  gets 0 Ticks under Wine and 3 on Windows 11.
+* Limits of that mechanism: AppDefaults match the file name only, so any program with that name gets the version (Wine's classic
+  notepad.exe included). Keying by package isn't possible, because the version is fixed in `version_init`, before anything knows the
+  process's package identity.
+* Test: `dlls/ntdll/tests/rtl.c` `test_appdefaults_version` (Wine only): a copy of the test under a name with an AppDefaults entry
+  reports 10.0.22631, and the parent does not. Lab u13, x86_64 and i386: 600368/600369 tests, 0 failures.
 
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
 
