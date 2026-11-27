@@ -13,6 +13,10 @@
   load in 4 runs of 5. With the fix: 2 of 2 (lab, with the per-app 23H2 version below).
 * Test: `dlls/ntdll/tests/alpc.c` `test_alpc_messages` connects a waitable client and checks the port and the packet around a
   synchronous request. Wine x86_64 and i386, and Windows 11 x64: 1840 tests, 0 failures.
+* Follow-up (Wine branch `claude/alpc-sync-reply-dead` 44892941): if the thread that sent a synchronous request no longer exists
+  when its reply is queued, the reply is queued as an ordinary one, so it doesn't sit in the queue until the port closes. Limits:
+  a thread that exits after its reply was queued still leaves that reply until the port closes, and Windows wasn't measured for
+  this case. Test: ntdll alpc test, Wine x86_64 and i386, 0 failures.
 
 ## ntdll, wine.inf: Notepad.exe is told Windows 11 23H2 (workaround; UWP, Wine branch `claude/appdefaults-win11-23h2` 98fccfd7, 2026-11-27)
 
