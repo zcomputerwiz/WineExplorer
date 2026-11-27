@@ -5318,3 +5318,24 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## Link-bound tokens: what session 0 believes of a user's server (B132, 2026-11-27)
+
+Wine `claude/link-bound-hardening` (on development), `docs/SESSION0_CROSS_SERVER.md` ("Link-bound tokens"):
+
+- `server/token.c`, `security.h`: `token_map_service_user` (a described SYSTEM, LocalService or NetworkService
+  becomes the uid's account SID, the service SID a deny-only group, INTERACTIVE added) and `token_apply_link_policy`
+  (BUILTIN aliases but Users and Guests deny-only, unverified and privileged domain groups deny-only, a mapped token's
+  SERVICE groups deny-only, a standard user's privileges, at most Medium, elevation Limited or Default, the owner
+  reset to the user), unless the account is an administrator and the description is its own.
+- `server/session0.c`: `link_policy` in `link_bound_token` (session 0 only, not in development mode), from session
+  0's accounts record at every build; a system role without an account record is refused; one log line per uid and
+  kind.
+- `dlls/wevtsvc/wevtsvc.c`, `include/wine/wex_eventlog.h`: the test operation `WEX_EVTLOG_TOKENVIEW`, answering only
+  while the EventLog key has `WexTestOps` = 1.
+
+Test: suite section `s0_hardening` (fails before the change: the system role was SYSTEM in session 0).
+- (review) `token_apply_link_policy` keeps of the other NT-authority SIDs only the computed logon groups (a role SID
+  claimed as a group is deny-only) and resets a primary group of SYSTEM or Administrators to the account's 513;
+  `server/wex_x0lab.c` (lab only): `open ... claim=sy` and `reftoken`, with `token_lab_add_group` (token.c, under
+  `WEX_X0_LAB_TEST`) and `x_lab_last_ref_token` (session0_x.c). Lab test in `s0_x0`.
