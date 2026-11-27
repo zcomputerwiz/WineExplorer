@@ -119,6 +119,19 @@ int main(void)
         UpdateWindow(owner);
         if (d3d || dcomp) present_d3d(dcomp);
     }
+    if (getenv("SAVEDLG_DELAY"))
+    {
+        /* SAVEDLG_DELAY=ms: pump messages that long before the dialog (does the GL/D3D setup need to settle first?) */
+        DWORD end = GetTickCount() + atoi(getenv("SAVEDLG_DELAY"));
+        MSG msg;
+
+        while ((int)(end - GetTickCount()) > 0)
+        {
+            MsgWaitForMultipleObjects(0, NULL, FALSE, 50, QS_ALLINPUT);
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+        }
+        printf("delayed %s ms\n", getenv("SAVEDLG_DELAY"));
+    }
     if (getenv("SAVEDLG_THREAD"))
     {
         HANDLE t = CreateThread(NULL, 0, show, (void *)1, 0, NULL);
