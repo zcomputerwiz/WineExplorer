@@ -81,6 +81,31 @@ static void present_d3d(bool dcomp)
     printf("present hr %#lx\n", hr);
 }
 
+/* SAVEDLG_INSPECT: a thread that finds the dialog and prints its extended style and layered attributes */
+static DWORD WINAPI inspect(void *arg)
+{
+    HWND dlg = NULL;
+    int i;
+
+    for (i = 0; i < 300 && !dlg; i++) { Sleep(100); dlg = FindWindowW(L"#32770", L"Save as"); }
+    if (!dlg) { printf("inspect: no dialog\n"); return 1; }
+    Sleep(2000);
+    {
+        LONG ex = GetWindowLongW(dlg, GWL_EXSTYLE);
+        COLORREF key = 0;
+        BYTE alpha = 0;
+        DWORD flags = 0;
+        BOOL ok = FALSE;
+
+        if (ex & WS_EX_LAYERED) ok = GetLayeredWindowAttributes(dlg, &key, &alpha, &flags);
+        printf("inspect: dialog %p style %#lx exstyle %#lx layered %s", dlg, GetWindowLongW(dlg, GWL_STYLE), ex,
+               (ex & WS_EX_LAYERED) ? "yes" : "no");
+        if (ex & WS_EX_LAYERED) printf(" (attributes %s: key %#lx alpha %u flags %#lx)", ok ? "set" : "not set", key, alpha, flags);
+        printf("\n");
+    }
+    return 0;
+}
+
 static DWORD WINAPI show(void *arg)
 {
     static const COMDLG_FILTERSPEC types[2] = {{L"Text documents (*.txt)", L"*.txt"}, {L"All files (*.*)", L"*.*"}};
@@ -101,6 +126,50 @@ static DWORD WINAPI show(void *arg)
     hr = dlg->Show(arg ? NULL : owner);
     printf("show hr %#lx\n", hr);
     dlg->Release();
+    return 0;
+}
+
+/* SAVEDLG_POPUP=savebits|plain: instead of the file dialog, a GDI window of our own over the owner (class with or without
+ * CS_SAVEBITS), titled "Save as" so the lab scripts find it; it paints light gray with text and stays 60 s */
+static LRESULT CALLBACK popup_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    if (msg == WM_PAINT)
+    {
+        PAINTSTRUCT ps;
+        RECT r;
+        HDC dc = BeginPaint(hwnd, &ps);
+        HBRUSH br = CreateSolidBrush(RGB(230, 230, 230));
+
+        GetClientRect(hwnd, &r);
+        FillRect(dc, &r, br);
+        DeleteObject(br);
+        TextOutW(dc, 20, 20, L"popup painted", 13);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static int popup(const char *kind)
+{
+    WNDCLASSW wc = {};
+    HWND hwnd;
+    DWORD end = GetTickCount() + 60000;
+    MSG msg;
+
+    wc.style = !strcmp(kind, "savebits") ? CS_SAVEBITS : 0;
+    wc.lpfnWndProc = popup_proc;
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+    wc.lpszClassName = L"savedlg_popup";
+    RegisterClassW(&wc);
+    hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"savedlg_popup", L"Save as", WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                           0, 0, 668, 522, owner, NULL, NULL, NULL);
+    printf("popup %s %p (class style %#x)\ncreate hr 0\n", kind, hwnd, wc.style);
+    while ((int)(end - GetTickCount()) > 0)
+    {
+        MsgWaitForMultipleObjects(0, NULL, FALSE, 50, QS_ALLINPUT);
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+    }
     return 0;
 }
 
@@ -132,6 +201,8 @@ int main(void)
         }
         printf("delayed %s ms\n", getenv("SAVEDLG_DELAY"));
     }
+    if (getenv("SAVEDLG_POPUP")) return popup(getenv("SAVEDLG_POPUP"));
+    if (getenv("SAVEDLG_INSPECT")) CloseHandle(CreateThread(NULL, 0, inspect, NULL, 0, NULL));
     if (getenv("SAVEDLG_THREAD"))
     {
         HANDLE t = CreateThread(NULL, 0, show, (void *)1, 0, NULL);
