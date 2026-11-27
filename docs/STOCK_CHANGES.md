@@ -16,8 +16,8 @@
 * Differences left: Windows keeps curves as Béziers in `Outline` and passes hollow figures through; Wine gives lines and leaves hollow
   figures out. The covered area and the bounds are the same.
 * Test: `dlls/d2d1/tests/d2d1.c` `test_geometry_outline`, with values measured on Windows 11 by `tests/uwp/alpc/d2d-outline-probe.cpp`
-  (WineExplorer branch `claude/uwp-notepad-strips3`). Wine x86_64: 23538 tests, 0 failures. The whole d2d1 test isn't run on the host
-  (it switches display modes).
+  (WineExplorer branch `claude/uwp-notepad-strips3`). Wine x86_64: 23538 tests, i386: 23378 tests, 0 failures. The whole d2d1 test
+  isn't run on the host (it switches display modes).
 
 ## server: the reply to a synchronous ALPC request goes to its thread only (UWP, Wine branch `claude/alpc-sync-reply` 74e1c977, 2026-11-27)
 
