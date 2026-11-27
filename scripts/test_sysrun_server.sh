@@ -5807,7 +5807,7 @@ if section s0_xproc; then set +e; ( section_enter
 # cannot open session 0's processes. 64-bit and 32-bit openers.
 for b in 64 32; do
     if [ $b = 64 ]; then CC=x86_64-w64-mingw32-gcc; else CC=i686-w64-mingw32-gcc; fi
-    $CC -O2 -Wall -municode -o "$ROOT/probes/x3probe$b.exe" "$SRC/scripts/x3-process-probe.c" -lntdll ||
+    $CC -O2 -Wall -municode -o "$ROOT/probes/x3probe$b.exe" "$SRC/scripts/x3-process-probe.c" -lntdll -ladvapi32 ||
         fail "s0_xproc: cannot build the probe ($b)"
 done
 X3D="$ROOT/x3"; rm -rf "$X3D"; install -d -m 1777 "$X3D"
@@ -5815,9 +5815,10 @@ x3_sleeper()   # tag seconds code: a program of $STD's session in the background
 {
     rm -f "$X3D/$1.pid"
     wine_as "$STD" "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/$1.pid")" "$2" "$3" >/dev/null 2>&1 &
-    for i in $(seq 1 60); do [ -s "$X3D/$1.pid" ] && break; sleep 0.5; done
-    tr -d '\r\n' < "$X3D/$1.pid" 2>/dev/null
+    for i in $(seq 1 60); do [ "$(wc -l < "$X3D/$1.pid" 2>/dev/null)" = 2 ] && break; sleep 0.5; done
+    head -1 "$X3D/$1.pid" 2>/dev/null | tr -d '\r\n'
 }
+x3_addr() { sed -n 2p "$X3D/$1.pid" 2>/dev/null | tr -d '\r\n'; }   # tag: the sleeper's marked buffer (X4)
 val() { sed -n "s/^$1=//p" <<<"$2"; }
 for b in 64 32; do
     TP="$(x3_sleeper s$b 6 7)"
@@ -5861,6 +5862,29 @@ OUT="$(tr -d '\r' < "$X3D/gone.out")"
     { echo "$OUT" >&2; fail "X3: the wait did not end with the session's server"; }
 kill_servers
 ok st_session0_wait_ends_when_the_sessions_server_does
+# X4: session 0 reads a session's process's memory (200 KiB, so several pieces of at most 60 KiB) through its server,
+# is refused a read without PROCESS_VM_READ, gets an error for an unmapped address, and opens the process's token,
+# which is that user's (link_bound_token: the link's account and session). The read from the 64-bit opener only (the
+# 64-bit sleeper's buffer may lie above 4 GiB); the token from both.
+TP="$(x3_sleeper r 60 0)"
+TA="$(x3_addr r)"
+[ -n "$TP" ] && [ -n "$TA" ] || fail "s0_xproc: the X4 sleeper did not start"
+STD_SID="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" whoami | sed -n 's/^user=//p')"
+for b in 64 32; do
+    OUT="$(s0_wine "$ROOT/probes/x3probe$b.exe" readtoken "$TP" "$TA" | tr -d '\r')"
+    echo "s0_xproc X4 $b-bit:"; sed 's/^/  /' <<<"$OUT"
+    if [ $b = 64 ]; then
+        [ "$(val read "$OUT")" = "ok 204800" ] || { echo "$OUT" >&2; fail "X4: session 0 did not read the session's process's memory"; }
+        grep -q '^readbad=error ' <<<"$OUT" || { echo "$OUT" >&2; fail "X4: an unmapped address was read"; }
+        [ "$(val readnoright "$OUT")" = "error 5" ] || { echo "$OUT" >&2; fail "X4: a read without PROCESS_VM_READ"; }
+    fi
+    [ "$(val token "$OUT")" = ok ] && [ -n "$STD_SID" ] && [ "$(val sid "$OUT")" = "$STD_SID" ] &&
+        [ -n "$(val tsession "$OUT")" ] && [ "$(val tsession "$OUT")" != 0 ] ||
+        { echo "$OUT (the user: $STD_SID)" >&2; fail "X4: the token is not the session's user's ($b)"; }
+done
+kill_servers
+wait
+ok st_session0_reads_a_sessions_process_and_opens_its_token
 # the review's deadline: a stopped user's server cannot hold session 0's opener; the open fails as an unknown id
 # (87) within the deadline (5 s), and the owner's late answer is released (session 0's log says so); afterwards an
 # open works again
@@ -5884,8 +5908,8 @@ ok st_session0_open_of_a_stopped_servers_process_ends_at_its_deadline
 # a session still cannot open session 0's processes (M3: callers in session 0 only)
 rm -f "$X3D/s0.pid"
 s0_wine "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/s0.pid")" 15 0 >/dev/null &
-for i in $(seq 1 60); do [ -s "$X3D/s0.pid" ] && break; sleep 0.5; done
-SP="$(tr -d '\r\n' < "$X3D/s0.pid" 2>/dev/null)"
+for i in $(seq 1 60); do [ "$(wc -l < "$X3D/s0.pid" 2>/dev/null)" = 2 ] && break; sleep 0.5; done
+SP="$(head -1 "$X3D/s0.pid" 2>/dev/null | tr -d '\r\n')"
 [ -n "$SP" ] || fail "s0_xproc: session 0's sleeper did not start"
 OUT="$(as_wine "$STD" "$ROOT/probes/x3probe64.exe" open "$SP" 101000 0)"
 grep -q '^open=error' <<<"$OUT" || { echo "$OUT" >&2; fail "X3: a session opened session 0's process $SP"; }

@@ -41,6 +41,7 @@
 
 #include <windows.h>
 #include <winternl.h>
+#include <sddl.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -60,18 +61,73 @@ typedef struct
     ULONG_PTR InheritedFromUniqueProcessId;
 } BASIC_INFO;
 
+/* X4: the sleeper's buffer, larger than one read piece (60 KiB): a marker, then byte i = (i * 7) & 0xff */
+#define MARK_SIZE (200 * 1024)
+static const char marker[] = "WEXX4MARKER";
+
 static void sleeper(const WCHAR *file, DWORD seconds, DWORD code)
 {
     HANDLE h = CreateFileW(file, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
-    char buf[32];
-    DWORD len, written;
+    unsigned char *mark = VirtualAlloc(NULL, MARK_SIZE, MEM_COMMIT, PAGE_READWRITE);
+    char buf[64];
+    DWORD len, written, i;
 
-    if (h == INVALID_HANDLE_VALUE) ExitProcess(2);
-    len = sprintf(buf, "%lu\n", GetCurrentProcessId());
+    if (h == INVALID_HANDLE_VALUE || !mark) ExitProcess(2);
+    for (i = 0; i < MARK_SIZE; i++) mark[i] = (i * 7) & 0xff;
+    memcpy(mark, marker, sizeof(marker));
+    /* the process id, then (X4) the buffer's address */
+    len = sprintf(buf, "%lu\n%Iu\n", GetCurrentProcessId(), (ULONG_PTR)mark);
     WriteFile(h, buf, len, &written, NULL);
     CloseHandle(h);
     Sleep(seconds * 1000);
     ExitProcess(code);
+}
+
+/* X4: read the sleeper's buffer (all of it, so several pieces), an unmapped address, and the read without VM_READ;
+ * then its token: prints read=, readbad=, readnoright=, token=, sid=, tsession= */
+static void readtoken(DWORD pid, ULONG_PTR addr)
+{
+    unsigned char *buf = malloc(MARK_SIZE), tu[256];
+    HANDLE h, h2, token;
+    SIZE_T got = 0;
+    DWORD i, len, session = 0;
+    LPSTR sid = NULL;
+
+    if (!(h = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)))
+    {
+        printf("open=error %lu\n", GetLastError());
+        return;
+    }
+    printf("open=ok\n");
+    if (ReadProcessMemory(h, (void *)addr, buf, MARK_SIZE, &got) && got == MARK_SIZE)
+    {
+        for (i = sizeof(marker); i < MARK_SIZE && buf[i] == ((i * 7) & 0xff); i++);
+        printf("read=%s %Iu\n", !memcmp(buf, marker, sizeof(marker)) && i == MARK_SIZE ? "ok" : "wrong", got);
+    }
+    else printf("read=error %lu %Iu\n", GetLastError(), got);
+    if (ReadProcessMemory(h, (void *)0x10, buf, 16, &got)) printf("readbad=ok\n");
+    else printf("readbad=error %lu\n", GetLastError());
+    if ((h2 = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)))
+    {
+        if (ReadProcessMemory(h2, (void *)addr, buf, 16, &got)) printf("readnoright=ok\n");
+        else printf("readnoright=error %lu\n", GetLastError());
+        CloseHandle(h2);
+    }
+    if (OpenProcessToken(h, TOKEN_QUERY, &token))
+    {
+        printf("token=ok\n");
+        if (GetTokenInformation(token, TokenUser, tu, sizeof(tu), &len) &&
+            ConvertSidToStringSidA(((TOKEN_USER *)tu)->User.Sid, &sid))
+        {
+            printf("sid=%s\n", sid);
+            LocalFree(sid);
+        }
+        if (GetTokenInformation(token, TokenSessionId, &session, sizeof(session), &len)) printf("tsession=%lu\n", session);
+        CloseHandle(token);
+    }
+    else printf("token=error %lu\n", GetLastError());
+    CloseHandle(h);
+    free(buf);
 }
 
 static void opener(DWORD pid, DWORD access, DWORD wait_ms)
@@ -143,9 +199,11 @@ int wmain(int argc, WCHAR **argv)
     if (argc == 5 && !wcscmp(argv[1], L"sleeper")) sleeper(argv[2], wcstoul(argv[3], NULL, 10), wcstoul(argv[4], NULL, 10));
     else if (argc == 5 && !wcscmp(argv[1], L"open")) opener(wcstoul(argv[2], NULL, 10), wcstoul(argv[3], NULL, 16),
                                                              wcstoul(argv[4], NULL, 10));
+    else if (argc == 4 && !wcscmp(argv[1], L"readtoken"))
+        readtoken(wcstoul(argv[2], NULL, 10), (ULONG_PTR)_wcstoui64(argv[3], NULL, 10));
     else
     {
-        printf("usage: probe sleeper FILE SECONDS CODE | probe open PID ACCESS WAIT_MS\n");
+        printf("usage: probe sleeper FILE SECONDS CODE | probe open PID ACCESS WAIT_MS | probe readtoken PID ADDR\n");
         return 1;
     }
     return 0;

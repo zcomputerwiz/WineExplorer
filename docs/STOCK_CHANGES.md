@@ -5243,3 +5243,21 @@ Wine `claude/x3-process-waits` (on development), M3 of `docs/SESSION0_CROSS_SERV
   `x_process_result`.
 
 Test: suite section `s0_xproc` (`scripts/x3-process-probe.c`, 64-bit and 32-bit openers in session 0).
+
+## X4: session 0 reads a session's process's memory and opens its token (2026-11-27)
+
+Wine `claude/x4-process-read-token` (on `claude/x3-process-waits`), `docs/SESSION0_CROSS_SERVER.md` ("X4 as built"):
+
+- `server/session0_xproc.c`: the process kind's `read` (through `read_process_memory`, `PROCESS_VM_READ` in the
+  reference) and `token` (the token's descriptor checked for the caller's token, the description sent); session 0's
+  request `x_process_call` (a read or the token on a remote handle, with the open's deadline) and `x_process_result`
+  giving the bytes or the token handle (built with `link_bound_token`).
+- `server/session0_x.c`, `session0_x.h`: `WEX_X_READ` and `WEX_X_TOKEN` served through the kind's operations;
+  `x_peer_uid`.
+- `include/wine/wex_session0.h`: `WEX_X_READ`, `WEX_X_TOKEN`, `WEX_X_MAX_READ`, `WEX_PCALL_*`, the request and reply
+  structures.
+- `server/protocol.def` (`x_process_call`; `x_process_result`'s reply data; generated files).
+- `dlls/ntdll/unix/process.c` (`remote_process_read`, `remote_process_token`), `virtual.c` (`NtReadVirtualMemory`),
+  `security.c` (`NtOpenProcessTokenEx`), `unix_private.h`: on `STATUS_NOT_SUPPORTED`, the remote call.
+
+Test: suite section `s0_xproc` (`scripts/x3-process-probe.c` mode `readtoken`).

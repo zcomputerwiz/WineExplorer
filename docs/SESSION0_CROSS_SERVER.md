@@ -251,6 +251,25 @@ consumed** (`server/thread.c`). So:
   processes or another user's (M3's first rule).
 - `WEX_SESSION0_VERSION` 9 (the new frame and kind). Tests: suite section `s0_xproc` (`scripts/x3-process-probe.c`).
 
+**X4 as built (2026-11-27, Wine `claude/x4-process-read-token`, on X3):**
+- Two frames, `WEX_X_READ` (an address and at most `WEX_X_MAX_READ`, 60 KiB, so the reply is one frame) and
+  `WEX_X_TOKEN` (the access asked for on the token), served through the kind's new `read` and `token` operations.
+- Session 0's side: `read_process_memory` and `open_token` on the remote handle give `STATUS_NOT_SUPPORTED` (as every
+  unserved request, X3); ntdll then calls the new request `x_process_call` (`WEX_PCALL_READ` or `WEX_PCALL_TOKEN`),
+  waits on the call and takes the result with `x_process_result` (the bytes, or the token's handle). A read is split
+  into pieces in ntdll; a later piece's failure gives `STATUS_PARTIAL_COPY`. The same 5 s deadline as the open
+  (`STATUS_IO_TIMEOUT`, an error status), late answers dropped.
+- The owner reads through its own process object (`read_process_memory`, the path a local `VM_READ` read takes),
+  with `PROCESS_VM_READ` in the reference; never a Unix pid from the caller, never a descriptor handed out.
+- The token: the owner checks the requested access against the token's own descriptor for the caller's token (the
+  reference's, from `link_bound_token`), with the limited query right in the reference, and sends the description and
+  the rights given; session 0 builds the token only through `link_bound_token`, bound to the link's account and
+  session, and makes the handle with those rights. The kind is refused in session 0 itself, so a user's server never
+  gets a token this way.
+- Tests (`s0_xproc`): session 0's 64-bit opener reads a 200 KiB buffer of a standard user's process (four pieces)
+  byte for byte, an unmapped address gives an error, a handle without `PROCESS_VM_READ` is refused (5); 64-bit and
+  32-bit openers get the process's token, whose user is the standard user's SID and whose session is the user's.
+
 ## M4. Global sections: anonymous, exact-sized, sealed (P2)
 
 Only **anonymous (pagefile-backed) sections** are shared across servers. Session 0 creates the backing itself for a
