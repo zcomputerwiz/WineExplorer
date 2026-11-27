@@ -692,7 +692,17 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
     MSCTF window (22000), two packet re-arms, then a Microsoft.ui.xaml SetEvent(0x4f8) at 22094 (same call site as at 6141, with
     user32 on the stack then).
   - Wine's UI thread runs the same kinds of rounds (six (6,0)) but never reaches that xaml SetEvent or PropertyValue/Uri.
-- Next: a focused Windows trace of the UI thread between InputSite and PropertyValue (waits, posts, sends, message retrievals), to find
-  which piece of work the xaml code runs on; then the matching point in Wine.
+- Focused Windows trace (wt-ui.txt, 120 s, 14 labels incl. waits, GetMessage, posts, sends, SetTimer; with that many labels Notepad
+  starts about 2x slower: InputSite 41938, Uri 42688, TabViewListView 54938). UI thread 37252:
+  - GetMessageW (41922) returns no dispatched message. Inside it CoreMessagingXP's window gets the sent (0x60,0,0), the
+    ScheduleDispatchNotification form. The handler calls SetTimer(id 1, 0x7fffffff), re-arms two packets, posts (6,0), and then runs
+    **Microsoft.ui.xaml work in the same handler**: SetEvent(0x46c) at 42157, PropertyValue 42453, Uri 42688.
+  - Wine's (0,0) handlers have the same shape (SetTimer, ResetEvent, post (6,0), SetEvent to the input thread, re-arm of 7 packets,
+    Drain2) but never run XAML work: the UI dispatcher has nothing ready, or doesn't see it.
+  - SetTimer(id 1, 0) / (id 1, 0x7fffffff) pairs are the same on both (the due-now timer is cancelled within the round; no WM_TIMER
+    reaches those windows on either). Windows keeps running rounds (297 SetTimer calls on the UI window in 120 s); Wine's stop at 750.014.
+- Next: find who queues that XAML work item on the UI dispatcher on Windows. Microsoft.UI.Dispatching.DispatcherQueue is activated on
+  the UI thread; follow its objects with _O (TryEnqueue / TryEnqueueWithPriority callers, thread, priority) and the timer object if any.
+  Then compare with what Wine's run queues (the handler Invoke or the CoreMessagingXP item).
 - Lab trap: after a rebuild that regenerates makefiles, a copied ldr-prefix runs `wineboot -u` and hangs with u13. Write `disable` into the
   copy's `.update-timestamp` (scratchpad dq-build.sh).
