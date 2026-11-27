@@ -19,6 +19,9 @@
  *          sink-probe2.c), slot 9 of {01dc794b-...} gives the host object itself
  * The second argument chooses the thread: sta (default), mta, or dq (a single-threaded apartment with a dispatcher queue made
  * by CreateDispatcherQueueController, and a message loop of two seconds after the calls).
+ * A '+' after it (sta+) lists after each step what the step left behind as seen from this process (new windows, new
+ * libraries, the state of the message queue) and runs a message loop of five seconds that lists every message; '++' also
+ * takes the queued messages out after each step.
  * For every object obtained: GetIids, GetRuntimeClassName, GetTrustLevel, QueryInterface for the ids seen so far.
  * A third argument names a library whose DllGetActivationFactory is used in place of the system's factories
  * (inputhost-logstub.dll: the stand-in for a Wine prefix, tried here with the calls of the application).
@@ -33,6 +36,8 @@
 #include <activation.h>
 #include <inspectable.h>
 #include <stdio.h>
+#define PSAPI_VERSION 2
+#include <psapi.h>
 
 static const GUID iid_unknown = {0x00000000, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 static const GUID iid_inspectable = {0xaf86e2e0, 0xb12d, 0x4c6a, {0x9c, 0x5a, 0xd7, 0xaa, 0x65, 0x10, 0x1e, 0x90}};
@@ -243,6 +248,79 @@ static LONG WINAPI crashed(EXCEPTION_POINTERS *info)
     ExitProcess(3);
 }
 
+/* With a '+' after the thread mode (sta+, dq+): after each step, what the step left behind in this process as seen from
+ * outside: the windows of the process that were not there before (class, and whether they belong to this thread), the
+ * libraries loaded since, and the state of this thread's message queue. In the message loop every message is listed. */
+static int show_state;
+static HWND known_windows[256];
+static int nknown_windows;
+static HMODULE known_modules[1024];
+static int nknown_modules;
+
+static void new_window(HWND hwnd, const char *kind)
+{
+    WCHAR cls[128] = L"?";
+    DWORD pid = 0, tid = GetWindowThreadProcessId(hwnd, &pid);
+    int i;
+
+    if (pid != GetCurrentProcessId()) return;
+    for (i = 0; i < nknown_windows; i++) if (known_windows[i] == hwnd) return;
+    if (nknown_windows < 256) known_windows[nknown_windows++] = hwnd;
+    GetClassNameW(hwnd, cls, 128);
+    printf("    new %s window, class %ls, %s\n", kind, cls, tid == GetCurrentThreadId() ? "this thread" : "another thread");
+}
+
+static BOOL CALLBACK top_window(HWND hwnd, LPARAM param)
+{
+    new_window(hwnd, "top-level");
+    return TRUE;
+}
+
+static void state(const char *after)
+{
+    HMODULE mods[1024];
+    DWORD needed = 0, status;
+    HWND hwnd = NULL;
+    unsigned int i, n;
+    int k;
+
+    if (!show_state) return;
+    printf("  state after %s:\n", after);
+    EnumWindows(top_window, 0);
+    while ((hwnd = FindWindowExW(HWND_MESSAGE, hwnd, NULL, NULL))) new_window(hwnd, "message-only");
+    if (EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed))
+    {
+        n = needed / sizeof(mods[0]);
+        if (n > 1024) n = 1024;
+        for (i = 0; i < n; i++)
+        {
+            WCHAR name[128] = L"?";
+
+            for (k = 0; k < nknown_modules; k++) if (known_modules[k] == mods[i]) break;
+            if (k < nknown_modules) continue;
+            if (nknown_modules < 1024) known_modules[nknown_modules++] = mods[i];
+            GetModuleBaseNameW(GetCurrentProcess(), mods[i], name, 128);
+            printf("    new library %ls\n", name);
+        }
+    }
+    status = GetQueueStatus(QS_ALLINPUT);
+    printf("    queue status %08lx\n", status);
+    if (show_state > 1)   /* "++": the messages that are there now are taken out and dispatched after every step */
+    {
+        MSG msg;
+
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+        {
+            WCHAR cls[128] = L"(no window)";
+
+            if (msg.hwnd) GetClassNameW(msg.hwnd, cls, 128);
+            printf("    message %#x for a window of class %ls, wparam %#llx, lparam %#llx\n",
+                   msg.message, cls, (unsigned long long)msg.wParam, (unsigned long long)msg.lParam);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
 /* the factories come from the system (RoGetActivationFactory) or, with a third argument, from that library's
  * DllGetActivationFactory (to try inputhost-logstub.dll with the calls an application makes) */
 static HRESULT (WINAPI *get_factory)(HSTRING, IActivationFactory **);
@@ -303,7 +381,7 @@ int wmain(int argc, WCHAR **argv)
 {
     static const WCHAR site_class[] = L"Windows.UI.Internal.Input.InputSite";
     static const WCHAR acio_class[] = L"Windows.UI.Internal.Input.ActivationConfigurationInputObject";
-    const WCHAR *thread_mode = argc > 2 ? argv[2] : L"sta";
+    WCHAR *thread_mode = argc > 2 ? argv[2] : (WCHAR *)L"sta";
     IInspectable *site_factory = NULL, *acio_factory = NULL, *site = NULL, *site_default = NULL, *acio = NULL;
     IUnknown *controller = NULL, *unk;
     HSTRING hs;
@@ -313,6 +391,16 @@ int wmain(int argc, WCHAR **argv)
     setvbuf(stdout, NULL, _IONBF, 0);
     SetUnhandledExceptionFilter(crashed);
     init_stubs();
+    if (argc > 2 && wcslen(thread_mode) && thread_mode[wcslen(thread_mode) - 1] == '+')
+    {
+        thread_mode[wcslen(thread_mode) - 1] = 0;
+        show_state = 1;
+        if (wcslen(thread_mode) && thread_mode[wcslen(thread_mode) - 1] == '+')
+        {
+            thread_mode[wcslen(thread_mode) - 1] = 0;
+            show_state = 2;
+        }
+    }
     if (argc > 1 && !wcscmp(argv[1], L"all")) answer_all = 1;
     else if (argc > 1 && !wcsncmp(argv[1], L"sink", 4))
     {
@@ -393,10 +481,12 @@ int wmain(int argc, WCHAR **argv)
         printf("InputSite factory {8ca0442d}: %08lx (the calls below use this interface)\n", hr);
     }
     if (FAILED(hr) || !site_factory) return 1;
+    state("the site factory was obtained (everything up to here)");
 
     step = "InputSite factory slot 6 (host, out)";
     hr = call3((*(void ***)site_factory)[6], site_factory, &stubs[0], &site);
     printf("InputSite factory slot 6 (host, out): %08lx, site %s, %d bytes left on the stack\n", hr, site ? "returned" : "NULL", stack_left);
+    state("the site was created");
     if (SUCCEEDED(hr) && site)
     {
         step = "inspect site";
@@ -426,17 +516,20 @@ int wmain(int argc, WCHAR **argv)
             hr = call3((*(void ***)acio_factory)[6], acio_factory, site_default, &acio);
             printf("ActivationConfigurationInputObject factory slot 6 (site, out): %08lx, object %s, %d bytes left on the stack\n",
                    hr, acio ? "returned" : "NULL", stack_left);
+            state("the configuration object was created");
         }
         if (acio)
         {
             step = "inspect configuration object";
             inspect("configuration object", acio);
+            state("the configuration object was inspected");
             step = "configuration object slot 7 (0)";
             hr = call2((*(void ***)acio)[7], acio, 0);
             printf("  configuration object slot 7 (0): %08lx, %d bytes left on the stack\n", hr, stack_left);
             step = "configuration object slot 9 (0)";
             hr = call2((*(void ***)acio)[9], acio, 0);
             printf("  configuration object slot 9 (0): %08lx, %d bytes left on the stack\n", hr, stack_left);
+            state("slots 7 and 9");
             /* a guess, not a measured shape: slots 6 and 8 read as the getters of what 7 and 9 set (one out pointer) */
             for (i = 6; i <= 8; i += 2)
             {
@@ -468,18 +561,31 @@ int wmain(int argc, WCHAR **argv)
         if (unk) IUnknown_Release(unk);
     }
 
-    if (!wcscmp(thread_mode, L"dq"))
+    if (!wcscmp(thread_mode, L"dq") || show_state)
     {
-        DWORD end = GetTickCount() + 2000;
+        DWORD start = GetTickCount(), end = start + (show_state ? 5000 : 2000);
+        int listed = 0;
         MSG msg;
 
         step = "message loop";
-        printf("message loop, 2 s\n");
+        printf("message loop, %d s\n", show_state ? 5 : 2);
         while (GetTickCount() < end)
         {
-            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+            {
+                if (show_state && listed++ < 200)
+                {
+                    WCHAR cls[128] = L"(no window)";
+
+                    if (msg.hwnd) GetClassNameW(msg.hwnd, cls, 128);
+                    printf("    %4lu ms: message %#x for a window of class %ls, wparam %#llx, lparam %#llx\n",
+                           GetTickCount() - start, msg.message, cls, (unsigned long long)msg.wParam, (unsigned long long)msg.lParam);
+                }
+                DispatchMessageW(&msg);
+            }
             MsgWaitForMultipleObjects(0, NULL, FALSE, 50, QS_ALLINPUT);
         }
+        state("the message loop");
     }
     step = "release";
     if (acio) printf("configuration object Release: %lu\n", IInspectable_Release(acio));

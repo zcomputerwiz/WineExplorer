@@ -38,6 +38,37 @@ load: the CoreMessaging rounds stop again afterwards. On Windows the system's li
 registration on the input thread at this point (it activates `Windows.System.DispatcherQueue` itself); whether Wine's
 module has to do the same is the open question (unknown 4 below).
 
+## After creation: what was looked for and not found (2026-11-26, evening)
+
+Question from the lab: under Wine both of Notepad's threads go idle once the sites and configuration objects exist,
+while on Windows 11 the page load starts on the UI thread about 300 ms after the first site is created. Does the
+system's library do something after creation that the application waits for?
+
+* **It does not call the host again** (*from a boundary trace of the handed-out objects*, Windows 11, `wt-is3.txt` and
+  `wt-is4.txt`). Every slot of the five host interfaces that the creation touches was watched for 45 seconds: the only
+  calls are the two `QueryInterface` and the two slot 9 calls per site, all on the input thread, all during the creation
+  call. Nothing afterwards, on any thread. The same on Windows 10 with our own host and a message loop of five seconds.
+* **Creating a site registers the calling thread with the system's message dispatcher** (`inputsite-create-probe.exe
+  sink sta+`, both systems, also in a multithreaded apartment). Seen from the caller: the system's `CoreMessaging.dll`
+  is loaded (Windows 10 also loads `CoreUIComponents.dll`), and the thread gets a message-only window of class
+  `UserAdapterWindowClass` (Windows 10) or `SystemUserAdapterWindowClass` (Windows 11) unless it has one already (a
+  thread with a dispatcher queue of `CreateDispatcherQueueController` has). The configuration object adds nothing
+  visible.
+* **Messages for that window are not a signal to the caller.** The probe sees messages `0x60` (wParam 1) for the adapter
+  window, but only after it has asked the objects for every interface they list and released them; how many, and after
+  which step, changes from run to run. A sequence like the application's (create, `QueryInterface` for the default
+  interface, the two writes) leaves the queue empty on both systems, also after a wait of 200 ms (tried with the Wine
+  test, extended for this and not committed). So the module should not post anything after creation; an experiment
+  that did (window plus two posted messages) was dropped, its diff is outside the repository
+  (`inputhost-adapter-window-experiment.diff`).
+
+Conclusion: nothing that the system's library does towards its caller after creation was found, so the start of the
+page load on Windows is not explained by this library. The next measurement belongs to the UI thread: which exported
+call wakes it just before the page load starts (an event set or a message posted, and from which thread).
+
+Whether the Wine module should create the adapter window is left open: it is measured behaviour, but nothing the
+application was seen to depend on, and Wine's `coremessaging` has no system dispatcher behind such a window yet.
+
 ## Rules followed
 
 Black box only: exported calls and calls at COM interface boundaries, with their arguments and results. No disassembly, no
