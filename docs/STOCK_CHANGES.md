@@ -5205,3 +5205,13 @@ cannot be taken over it destroys it (with the dead shell's taskbar and the progr
 the new window is the only desktop. `WINE_X11_RETAIN_TEST_REFUSE` (tests only) refuses the takeover. Check:
 `scripts/wexbuild-root/b121-adopt-refused.sh` (refused: one Wine Desktop, one WineAppBar, the warnings in the log; with
 `WINE_X11_RETAIN_TEST_REFUSE=0` the plain takeover), and `b121-x11-survivors.sh` still passes.
+
+Addition (2026-11-26, `claude/b121-adopt-fallback`): when the shell is the user wineserver's last client, `kill -9` of the
+shell ends the server too, so no desktop window or property survives and the adoption is never reached; the retained X
+desktop, taskbar and desktop view stay orphaned. When a desktop window is created, `X11DRV_destroy_orphan_desktops` now
+scans the root's children (and one level below, for window manager frames) for windows titled "Wine Desktop" whose
+`_NET_WM_PID` is a dead process (`kill(pid, 0)` gives ESRCH; never our own pid) and destroys them, logging each. A
+live pid is never touched, so no uid check is needed. When the server dies the survivors die with it, so keeping the
+survivors (B121 proper) only matters while another Wine program holds the server. Check:
+`scripts/wexbuild-root/b121-orphan-desktop.sh` (Xvfb with a second X client, no other Wine program: one Wine Desktop
+after the restart; three without the scan). The taskbar window is not counted: it does not show on headless Xvfb.
