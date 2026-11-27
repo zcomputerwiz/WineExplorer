@@ -56,7 +56,7 @@
 #   journal      the systemd journal bridge (docs/EVENTLOG_JOURNAL.md), in a normal start: wex-journal-bridge.socket is
 #                active, the bridge runs as wexjournal once session 0's EventLog service has connected, and a unit that
 #                fails to start on purpose is stored in session 0's System log (its description and the failure's
-#                text, event 7000). An image without the bridge is reported, not failed.
+#                text, event 7000). An image without the bridge fails.
 #   waylandsafe  Safe Mode in the Wayland session, chosen on the Welcome screen (work order A3): the message box, the
 #                desktop, WEXMODE=safe, and the session runs under wexcomp. Only when named.
 #   waylandcmd   Safe Mode with Command Prompt in the Wayland session: the recovery console runs in wexcomp (through
@@ -1803,11 +1803,8 @@ phase_journal() {   # the journal bridge, in a normal start: see the header
     desktop 600
     out=$(as_root 'systemctl is-active wex-journal-bridge.socket 2>/dev/null; systemctl cat wex-journal-bridge.socket >/dev/null 2>&1 || echo absent' \
         | tr -d '\r' | grep -E '^(active|inactive|failed|absent)$' | tail -n 1)
-    if [ "$out" = absent ]; then
-        echo "  NOTE: this image has no journal bridge (wex-journal-bridge.socket): nothing to check"
-        shutdown_vm
-        return 0
-    fi
+    # every image this phase runs on has the bridge (it came with it): a missing one fails, never passes (B130's trap)
+    [ "$out" != absent ] || fail "this image has no journal bridge (wex-journal-bridge.socket)"
     [ "$out" = active ] || fail "wex-journal-bridge.socket is ${out:-unknown}, not active"
     # session 0's EventLog service connects (it tries every 10 s): the socket starts the bridge, as wexjournal
     for i in $(seq 1 30); do
