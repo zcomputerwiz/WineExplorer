@@ -214,7 +214,9 @@ static int field( sd_journal *j, const char *name, char *buf, size_t size )
 
 struct bucket { char key[160]; double tokens; uint64_t last; unsigned int dropped; };
 static struct bucket buckets[256];
-static struct bucket total_bucket;
+static struct bucket total_bucket;          /* journal to Event Log, all rules */
+static struct bucket total_journal_bucket;  /* Event Log to journal, all sources (any user can make sources, and a full
+                                             * table reuses slots: this one is never reset) */
 static uint64_t last_report;
 
 static int bucket_take( struct bucket *b, double rate, double burst )
@@ -476,7 +478,7 @@ static void expire_pendings(void)
 static void handle_pid1( sd_journal *j, const char *mid, const char *cursor )
 {
     char unit[128], result[64], text[256], desc[256], count[16], delay[32];
-    const char *strings[4];
+    const char *strings[5];
     struct unit_state *us;
     struct pending *p;
 
@@ -498,11 +500,14 @@ static void handle_pid1( sd_journal *j, const char *mid, const char *cursor )
         {
             snprintf( count, sizeof(count), "%u", us->failures );
             snprintf( delay, sizeof(delay), "%llu", (unsigned long long)unit_restart_msec( unit ) );
+            /* five strings, the message using %1 %2 %3 %5 (Windows 11's manifest, read on the host): %4 is the
+             * action's code (SC_ACTION_RESTART, 1), %5 its text */
             strings[0] = p->desc;
             strings[1] = count;
             strings[2] = delay;
-            strings[3] = "Restart the service";
-            send_event( "service-restart", WEXJ_LOG_SYSTEM, "Service Control Manager", EVT_ERROR, 7031, cursor, 4,
+            strings[3] = "1";
+            strings[4] = "Restart the service";
+            send_event( "service-restart", WEXJ_LOG_SYSTEM, "Service Control Manager", EVT_ERROR, 7031, cursor, 5,
                         strings );
             p->unit[0] = 0;
             return;
@@ -699,7 +704,7 @@ static int handle_record( const char *body, size_t size )
     if (!strcasecmp( safe_log, "Security" ) && !security_to_journal) return 1;
     snprintf( key, sizeof(key), "J|%s", safe_source );
     b = bucket_get( key );
-    if (!bucket_take( b, RATE_PER_SECOND, RATE_BURST ))
+    if (!bucket_take( b, RATE_PER_SECOND, RATE_BURST ) || !bucket_take( &total_journal_bucket, RATE_TOTAL, RATE_TOTAL ))
     {
         b->dropped++;
         return 1;
@@ -957,7 +962,9 @@ int main( int argc, char **argv )
             log_msg( LOG_ERR, "cannot listen on %s: %s", socket_path, strerror( errno ) );
             return 1;
         }
-        chmod( socket_path, 0666 );  /* the uid check decides who is served */
+        /* tests only (--socket): the uid check decides who is served; the installed unit's socket is the socket
+         * unit's, 0660 for wexjournal:wexsys */
+        chmod( socket_path, 0666 );
     }
 
     for (;;)

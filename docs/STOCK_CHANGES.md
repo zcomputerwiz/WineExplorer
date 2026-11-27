@@ -5227,8 +5227,10 @@ Wine `claude/eventlog-journal-j1` (on development), `docs/EVENTLOG_JOURNAL.md` (
 - `dlls/wevtsvc/journal.c` (new): session 0's EventLog service keeps the connection to `wex-journal-bridge`, stores the
   mapped journal events it receives (parsed as untrusted: caps, terminated strings, control characters and escapes
   stripped) with their cursor in the record's data, and sends back the records it stores otherwise.
-- `dlls/wevtsvc/unixlib.c`, `unixlib.h` (new), `Makefile.in` (`UNIXLIB = wevtsvc.so`): the socket to the bridge's fixed
-  path (Wine's Winsock has no `AF_UNIX`).
+- `dlls/wevtsvc/unixlib.c`, `unixlib.h` (new), `Makefile.in` (`UNIXLIB = wevtsvc.so`, the module's first Unix
+  library): the socket to the bridge's fixed path (Wine's Winsock has no `AF_UNIX`), `SOCK_STREAM | SOCK_CLOEXEC`,
+  `MSG_NOSIGNAL` on every send, a deadline on connect, send and receive; `connect_to` has `wexjoin`'s shape
+  (`src/dlls/wexjoin/unixlib.c`); the 32-bit side's `__wine_unix_call_wow64_funcs` (the parameters have one layout).
 - `dlls/wevtsvc/wevtsvc_msg.mc` (new): the message module of the service's and the bridge's sources, our own wording.
 - `dlls/wevtsvc/wevtsvc.c`, `wevtsvc_private.h`: `evt_build_record` exported within the module; reported records and
   the service's own go to the bridge (`journal_record`); the completion key `JOURNAL_KEY` dispatches the bridge's

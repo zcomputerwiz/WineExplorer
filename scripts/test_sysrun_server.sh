@@ -5561,7 +5561,7 @@ want System 'id=7000 type=1 source=Service Control Manager strings=2 first=WexJ 
     { evs read System | grep -i wexj >&2; jfail "journal: no 7000 for the unit that failed to start"; }
 want System 'id=7034 type=1 source=Service Control Manager strings=2 first=WexJ Crash Test all=WexJ Crash Test|1$' ||
     { evs read System | grep -i wexj >&2; jfail "journal: no 7034 for the unit that failed while running"; }
-want System 'id=7031 type=1 source=Service Control Manager strings=4 first=WexJ Restart Test all=WexJ Restart Test|1|1000|Restart the service$' ||
+want System 'id=7031 type=1 source=Service Control Manager strings=5 first=WexJ Restart Test all=WexJ Restart Test|1|1000|1|Restart the service$' ||
     { evs read System | grep -i wexj >&2; jfail "journal: no 7031 for the unit with a restart"; }
 systemctl stop "wexj-restart-$R" 2>/dev/null
 evs read System | grep -q 'id=7034 .*first=WexJ Restart Test' &&
@@ -5617,6 +5617,15 @@ NF=$(evs read Linux | grep -c 'source=WexJ Flood')
 wantlong System "id=5 type=2 source=Linux Kernel strings=3 first=wexj-flood-$R.service all=wexj-flood-$R.service|WexJ Flood|" ||
     jfail "journal: no notice of the dropped entries"
 ok st_journal_flood_is_rate_limited_and_reported
+# a bridge gone wrong (a fake one in its place): session 0 stores only the rows a bridge may write (the review)
+kill "$JBP" 2>/dev/null || true; wait "$JBP" 2>/dev/null || true
+OUT="$(python3 -I "$SRC/scripts/journal-bridge-client.py" "$JSOCK" fakebridge 2>&1)"
+grep -q 'served=1' <<<"$OUT" || { echo "$OUT" >&2; jfail "journal: the service did not connect to the fake bridge"; }
+want Linux 'source=WexJ Fake strings=1 first=WEXJ FAKE ALLOWED$' || jfail "journal: an allowed row of the fake bridge was not stored"
+ALL="$(evs read System; evs read Application)"
+! grep -q 'WEXJ FAKE 6005\|WEXJ FAKE EVIL\|WEXJ FAKE 7036' <<<"$ALL" ||
+    { grep 'WEXJ FAKE' <<<"$ALL" >&2; jfail "journal: session 0 stored a row the bridge may not write"; }
+ok st_journal_session0_stores_only_the_bridges_rows
 jb_done
 kill_servers
 true; ); section_leave $?; fi

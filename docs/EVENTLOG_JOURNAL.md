@@ -29,16 +29,18 @@ go through the Event Log.
   order, so a program or script that reads `EVENTLOGRECORD`s sees the documented ids and strings.
 - **Insertion strings (R5):** Service Control Manager 7000 has two (the service's display name, and the error's text,
   not a bare token) and 7034 two (the service, the number of times it failed), both per Microsoft's published event
-  pages; 7031 has four (the service, the count, the delay in milliseconds, the corrective action), from a third-party
-  description only, so J1 confirms it from the lab VM's provider metadata (`wevtutil gp` on the Service Control
-  Manager provider, a read; its ids are unchanged since XP) before the row is coded. **`wevtutil gp /gm` prints
+  pages; 7031 has five, its message using `%1 %2 %3 %5` (the service, the count, the delay in milliseconds, the
+  action's text; `%4`, the action's code, is not in the text), from Windows 11's provider metadata read on the host
+  (`wevtutil gp` on the Service Control Manager provider; the ids are unchanged since XP, XP's text may differ). **`wevtutil gp /gm` prints
   Microsoft's message templates: only the number and order of the `%n` insertions are recorded, nothing of the
   wording, in notes, commits or the repository.**
 - Security 528, 529 and 538 are not in Windows 10's metadata (its auditing provider uses 4624, 4625 and 4634), so J2
   takes their insertion strings from Microsoft's archived, public Windows Server 2003 and XP security event
   documentation. No Windows 10 Security id is relied on without asking the reviewer first.
 - systemd's message ids (`MESSAGE_ID`) come from systemd's own catalog (LGPL-2.1, the installed `journalctl
-  --list-catalog`), checked against Debian 13's before code.
+  --list-catalog`), **checked against Debian 13, systemd 257** (recheck on a systemd bump): `be02cf68...` a start job
+  failed (7000), `d9b373ed...` a unit failed (the 7031/7034 look-ahead starts), `5eb03494...` a restart scheduled
+  (7031), `98e32220...` a unit's process exited (its exit status), `fc2e22bc...` a core dump.
 
 ## Who reads the journal: a native bridge, not session 0
 
@@ -61,8 +63,10 @@ journal would put every user's journal behind any flaw in that code. So:
   has no `AF_UNIX` (correction to draft 2, told to the reviewer before J1), and stores what it receives as records of
   the mapped log and source. The bridge never writes the Event Log's files, and session 0 never reads the journal.
 - **Why a socket and not D-Bus through wexhost** (the project's preference elsewhere): session 0 stays off the system
-  bus, and the peer check is the kernel's (`SO_PEERCRED`) with no bus policy to get right. The peer check is shared
-  with `wexprefetchd` (`src/common/wex_peer.h`, which it now uses too).
+  bus; the bridge checks the peer's uid itself (`SO_PEERCRED`, no bus policy to get right); and `wevtsvc`'s Unix
+  library connects to one fixed path only, never one a caller names. Its connect follows `wexjoin`'s (`connect_to`,
+  with a deadline), each pointing to the other. The bridge's peer check is shared with `wexprefetchd`
+  (`src/common/wex_peer.h`, which it now uses too).
 - Without the bridge (not installed, plain prefixes, development mode) nothing changes.
 
 Alternative considered: `journalctl --follow -o json` started by the service. Rejected: it would need the journal
@@ -97,7 +101,7 @@ match wins; an entry that matches no rule is dropped.
 |---|---|---|---|---|---|---|
 | 1 | A start job of a system unit failed | System | Service Control Manager | 7000 | Error | the unit's description, the failure's text (from the unit's result: "the process exited with code 3", "the start timed out", ...) |
 | 2 | A running system unit failed, no restart scheduled | System | Service Control Manager | 7034 | Error | the unit's description, its failures this boot |
-| 3 | A running system unit failed and a restart is scheduled | System | Service Control Manager | 7031 | Error | the description, its failures this boot, the restart delay in ms, "Restart the service" |
+| 3 | A running system unit failed and a restart is scheduled | System | Service Control Manager | 7031 | Error | the description, its failures this boot, the restart delay in ms, 1 (the action's code), "Restart the service" |
 | 4 | Kernel, block layer I/O error (`_KERNEL_SUBSYSTEM` `block` or `scsi`, `PRIORITY` <= 3) | System | Disk | 11 | Error | the Linux device name |
 | 5 | Kernel, file system error (ext4/btrfs/xfs, `PRIORITY` <= 3) | Linux | Linux Kernel | 2 | Error | the message |
 | 6 | Kernel, out of memory kill | Linux | Linux Kernel | 3 | Error | the message |
@@ -225,6 +229,13 @@ Wine `claude/eventlog-journal-j1`, WineExplorer `claude/eventlog-journal-j1`:
   and 7034, Disk 11, EventLog 6000, Linux Kernel 1-6, the listed units' 1). The cursor is the record's data
   (`WEXJ_CURSOR_MAGIC` and the cursor), found again at start in the newest journal-sourced record of System,
   Application and Linux. `wine.inf`: the Linux log with its `CustomSD`, the sources with the message module.
+- **Session 0 decides (the J1 review):** only Application and System records go to the bridge; Security, or a custom
+  log, only when session 0's key of that log has `WexToJournal` (DWORD, non-zero), the bridge's `security_to_journal`
+  a second gate. What the bridge may write is allow-listed in the service: System takes Service Control Manager
+  7000/7031/7034, Disk 11 and Linux Kernel 1-6; Application only Linux Kernel 4; the Linux log any valid source with
+  ids 1-6, whose key the service makes (at most 64 such sources). The queue to the bridge holds exact-size copies, at
+  most 1024 frames and 1 MiB; the Unix side has a 5 s deadline on connect and each send. The bridge caps Event Log to
+  journal at 100 records a second overall besides the per-source buckets.
 - **The bridge:** `src/wex-journal-bridge/wex-journal-bridge.c`, units `wex-journal-bridge.{socket,service}`, account
   `wexjournal` (`sysusers`), packaged in the session package. One connection served at a time; a new one from session
   0's uid replaces it (the service restarted), any other uid is refused at once. `--first-start now` (tests): without
@@ -235,14 +246,16 @@ Wine `claude/eventlog-journal-j1`, WineExplorer `claude/eventlog-journal-j1`:
 - **Known limit:** journald attributes a stream to a unit by looking up the writing process; a short-lived helper
   (`systemd-cat` in a unit) can be gone first, and its lines then carry no `_SYSTEMD_UNIT`, so row 12 does not see
   them (fail-safe: nothing is mapped). A unit's own stdout and stderr are always attributed.
-- **7031's insertion strings** are coded as four (the service, the count, the delay, the action) and still to be
-  confirmed from the lab VM's provider metadata (guest control did not answer on 2026-11-27).
+- **7031's insertion strings:** five, the message using `%1 %2 %3 %5` in that order (`%4` unused in the text). Source:
+  Windows 11's Service Control Manager manifest, read black-box on the host by the orchestrator (`wevtutil gp /ge
+  /gm`, tokens only, no wording kept), since the lab VM's guest control did not answer; XP's 7031 may differ. Sent
+  as the service, the failures, the delay in ms, the action's code (1, restart) and the action's text.
 - **Tests:** suite section `s0_journal` (the bridge built from `src/` and run as root for the suite's session 0 account):
   7000, 7034 and 7031 (exclusive) from units failing on purpose; forged entries of a standard user (PID 1's, a listed
   unit's and kernel-looking ones) and a Wine debug line not mapped; a long string cut with "...", escapes stripped; a
   reported event in the journal with its fields; another account refused; a lost cursor gives `GAP`, a malformed frame
   closes; the service's restart resumes without a duplicate; a flood of 150 errors stored about 50 times and the
-  minute's notice of the rest. Not yet run: an installed image with the socket-activated unit as `wexjournal`.
+  minute's notice of the rest; a fake bridge's disallowed rows (EventLog 6005, another program's source, Service Control Manager 7036) not stored, its Linux row stored. Not yet run: an installed image with the socket-activated unit as `wexjournal`.
 
 ## Review record
 

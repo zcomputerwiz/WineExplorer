@@ -63,7 +63,8 @@ static long long now_ms(void)
     return (long long)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
-/* a connected socket to path, or -errno */
+/* a connected socket to path, or -errno. Wine's wevtsvc (dlls/wevtsvc/unixlib.c, the journal bridge) has the same
+ * shape with a deadline on the connect: keep the two alike (a third user is when a shared header pays) */
 static int connect_to( const char *path )
 {
     struct sockaddr_un addr;
