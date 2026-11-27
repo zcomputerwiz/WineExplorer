@@ -266,6 +266,17 @@ consumed** (`server/thread.c`). So:
   the rights given; session 0 builds the token only through `link_bound_token`, bound to the link's account and
   session, and makes the handle with those rights. The kind is refused in session 0 itself, so a user's server never
   gets a token this way.
+- **The review's fixes:** the token's descriptor is checked for the caller of `OpenProcessToken` (its thread's token
+  if impersonating, else its process's), described and sent with the request as `OPEN` sends its own, not for the
+  identity that opened the process; and the handle's rights are the owner's mask clamped to the mapped request (all
+  it gives only for `MAXIMUM_ALLOWED`).
+- **The token is a copy made at the open.** Adjusting it (privileges, its default DACL) does not reach the real
+  process; on Windows it is the same object.
+- **Its groups, privileges and elevation are the user's server's claims**; only the user SID is bound to the link's
+  account (T1). X4 is batched only together with the hardening that verifies Administrators and the other privileged
+  groups of link-bound tokens against session 0's accounts record (the reviewer's condition).
+- Not in this change: `NtQueryVirtualMemory` (`VirtualQueryEx`) on a remote process is `STATUS_NOT_SUPPORTED`, with
+  X3's FIXME, so a lab run shows who asks.
 - Tests (`s0_xproc`): session 0's 64-bit opener reads a 200 KiB buffer of a standard user's process (four pieces)
   byte for byte, an unmapped address gives an error, a handle without `PROCESS_VM_READ` is refused (5); 64-bit and
   32-bit openers get the process's token, whose user is the standard user's SID and whose session is the user's.

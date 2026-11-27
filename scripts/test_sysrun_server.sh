@@ -5811,10 +5811,10 @@ for b in 64 32; do
         fail "s0_xproc: cannot build the probe ($b)"
 done
 X3D="$ROOT/x3"; rm -rf "$X3D"; install -d -m 1777 "$X3D"
-x3_sleeper()   # tag seconds code: a program of $STD's session in the background; prints its process id
+x3_sleeper()   # tag seconds code [32]: a program of $STD's session in the background; prints its process id
 {
     rm -f "$X3D/$1.pid"
-    wine_as "$STD" "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/$1.pid")" "$2" "$3" >/dev/null 2>&1 &
+    wine_as "$STD" "$ROOT/probes/x3probe${4:-64}.exe" sleeper "$(winpath "$X3D/$1.pid")" "$2" "$3" >/dev/null 2>&1 &
     for i in $(seq 1 60); do [ "$(wc -l < "$X3D/$1.pid" 2>/dev/null)" = 2 ] && break; sleep 0.5; done
     head -1 "$X3D/$1.pid" 2>/dev/null | tr -d '\r\n'
 }
@@ -5864,20 +5864,18 @@ kill_servers
 ok st_session0_wait_ends_when_the_sessions_server_does
 # X4: session 0 reads a session's process's memory (200 KiB, so several pieces of at most 60 KiB) through its server,
 # is refused a read without PROCESS_VM_READ, gets an error for an unmapped address, and opens the process's token,
-# which is that user's (link_bound_token: the link's account and session). The read from the 64-bit opener only (the
-# 64-bit sleeper's buffer may lie above 4 GiB); the token from both.
-TP="$(x3_sleeper r 60 0)"
-TA="$(x3_addr r)"
-[ -n "$TP" ] && [ -n "$TA" ] || fail "s0_xproc: the X4 sleeper did not start"
+# which is that user's (link_bound_token: the link's account and session). Each opener reads a sleeper of its own
+# width (the 32-bit one's buffer lies below 4 GiB, so the WoW64 read is tested too).
 STD_SID="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" whoami | sed -n 's/^user=//p')"
 for b in 64 32; do
+    TP="$(x3_sleeper r$b 60 0 $b)"
+    TA="$(x3_addr r$b)"
+    [ -n "$TP" ] && [ -n "$TA" ] || fail "s0_xproc: the X4 $b-bit sleeper did not start"
     OUT="$(s0_wine "$ROOT/probes/x3probe$b.exe" readtoken "$TP" "$TA" | tr -d '\r')"
     echo "s0_xproc X4 $b-bit:"; sed 's/^/  /' <<<"$OUT"
-    if [ $b = 64 ]; then
-        [ "$(val read "$OUT")" = "ok 204800" ] || { echo "$OUT" >&2; fail "X4: session 0 did not read the session's process's memory"; }
-        grep -q '^readbad=error ' <<<"$OUT" || { echo "$OUT" >&2; fail "X4: an unmapped address was read"; }
-        [ "$(val readnoright "$OUT")" = "error 5" ] || { echo "$OUT" >&2; fail "X4: a read without PROCESS_VM_READ"; }
-    fi
+    [ "$(val read "$OUT")" = "ok 204800" ] || { echo "$OUT" >&2; fail "X4: session 0 did not read the session's process's memory ($b)"; }
+    grep -q '^readbad=error ' <<<"$OUT" || { echo "$OUT" >&2; fail "X4: an unmapped address was read ($b)"; }
+    [ "$(val readnoright "$OUT")" = "error 5" ] || { echo "$OUT" >&2; fail "X4: a read without PROCESS_VM_READ ($b)"; }
     [ "$(val token "$OUT")" = ok ] && [ -n "$STD_SID" ] && [ "$(val sid "$OUT")" = "$STD_SID" ] &&
         [ -n "$(val tsession "$OUT")" ] && [ "$(val tsession "$OUT")" != 0 ] ||
         { echo "$OUT (the user: $STD_SID)" >&2; fail "X4: the token is not the session's user's ($b)"; }
