@@ -209,6 +209,18 @@ way.
        commit, and then takes whatever size the client has, in one step: an adopt operation for a group that has no scene
        (today `configure_foreign` without a scene only tries `commit_foreign`, which requires matching dimensions and does
        not move anything). Not done.
+     - **Where the failures come from, and two trials (2026-11-27, `wayland-scale-cycle.sh`, 3 cycles = 6 checks per run):**
+       trace (compositor logging, not kept) of the hosted `foot`: at every scale change `foot` commits a size of its own
+       (cell grid, fractional scale), `native_committed` drops the group, Wine's frame follows the new native size, and the
+       group re-forms; the sizes drift by a cell or two per cycle, harmless. The position failures are a flip between two
+       models: after the compositor keeps the frame's *physical* place (logical 344,189 at 150%), the frame is moved to
+       logical 517,293 (the old logical place, which is physical 776,440), 1.5 times the original. Trial 1 (wexcomp
+       `claude/scale-drop-keeps-place` b00f4f06: a dropped group leaves the native window where it was shown, not at its
+       pre-group coordinates): baseline 10 of 18 checks fail over 3 runs, with it 11 of 36 over 6 runs (2 of 6 runs fully
+       clean). Trial 2 (not shipped: the shell's scale-message handler also treats a frame with the native host property
+       as owning its physical placement when the group is not active, so it does not apply the stale native snapshot at
+       the new scale): worse, 18 of 36 over 6 runs, with a 16 px vertical drift (the client offset differs between the
+       scales). So trial 1 halves the failures and is kept as a branch; trial 2 is not. Still not shippable.
      - **First attempt at that adopt operation (not shipped):** on `configure_foreign` for a group dropped before
        (a `group_dropped` flag on the frame), compose the pair at the native client's current size, which puts the native
        view at the frame's client origin, then run the layout transaction to the requested size. It was worse than the
