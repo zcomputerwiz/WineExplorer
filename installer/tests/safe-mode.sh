@@ -822,7 +822,13 @@ expect_check() {   # the start-up check (scripts/wex-startup-check.sh) finished 
                    # is in the system journal, which the test user cannot read; whether Vintner Boot counted the
                    # start shows at the next one (vfailed, lastgoodgen).
     local out
-    out=$(gsh 'systemctl show -p ActiveState -p Result wex-startup-check.service | tr "\n" " "' | grep 'ActiveState=' | tail -n 1)
+    # the desktop can be up while the check still saves the control set (about 10 s, longer on a loaded host: lastgoodgen,
+    # batch 1147 / gpohidden run): wait while the unit is activating
+    local try
+    for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        out=$(gsh 'systemctl show -p ActiveState -p Result wex-startup-check.service | tr "\n" " "' | grep 'ActiveState=' | tail -n 1)
+        case " $out " in *" ActiveState=activating "*) sleep 5 ;; *) break ;; esac
+    done
     echo "  start-up check: $out"
     case " $out " in
         *" ActiveState=active "*) case " $out " in *" Result=success "*) return 0 ;; esac ;;
