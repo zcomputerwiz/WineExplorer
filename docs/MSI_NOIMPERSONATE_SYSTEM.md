@@ -200,6 +200,11 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
    `GetMode` answers `SCHEDULED`, `ROLLBACK` and `COMMIT` and FALSE otherwise, `FormatRecord` formats without the
    package's properties. The host reads the client's frames as untrusted (sizes that add up, terminated strings, RPC
    answers with a valid header); a malformed one ends the connection.
+   **The stream** (B108: Edge's DoInstall carries a 290 MB binary): a RUN frame has the header, the entry and the
+   action's name, without the binary; the binary follows in CHUNK frames of 1 MB at most, which the host writes
+   straight into its file; every frame is 1 MB at most and a binary 2 GB at most (`WEX_MSISYS_MAX_BINARY`). A chunk
+   without its RUN, more bytes than announced, or a second RUN before the first's binary is complete ends the
+   connection; neither side holds more than 1 MB of a binary.
    **The endpoint** (the reviewer): a random name chosen by the host, created with `FILE_FLAG_FIRST_PIPE_INSTANCE`
    before the host reports ready (so before any action loads), DACL SYSTEM only.
 8. **Script actions** run in the client in Wine (not in the `-Embedding` host). Point 5 of B's answer: they stay in the
