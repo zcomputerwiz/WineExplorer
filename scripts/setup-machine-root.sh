@@ -915,6 +915,16 @@ if [ "$DWM_COMPOSITION" = 1 ] && [ "$ACTION" = apply ]; then
         echo "Template prefix: desktop composition on (WEX_DWM_COMPOSITION=1, a test setting)"
     fi
 fi
+# XP shows a window's contents while it is dragged or resized ("Show window contents while dragging"); Wine's default
+# is an outline. A default for new accounts only: a section of its own at the end of the template hive, written once.
+# Accounts that exist keep their prefixes and their own value; a new account can change it like any other setting.
+# (A hive Wine has saved since merges the section into the key and drops the marker: the value itself counts too.)
+if [ "$ACTION" = apply ] && [ -f "$SKEL_PFX/user.reg" ] && ! grep -qF ';wex-default-drag-full-windows' "$SKEL_PFX/user.reg" &&
+   ! grep -qF '"DragFullWindows"="1"' "$SKEL_PFX/user.reg"; then
+    printf '\n[%s] 1700000000\n#time=1d9a0000000000\n;wex-default-drag-full-windows\n%s\n' \
+        'Control Panel\\Desktop' '"DragFullWindows"="1"' >> "$SKEL_PFX/user.reg"
+    echo "Template prefix: show window contents while dragging (DragFullWindows=1, as XP)"
+fi
 
 # Clean up any leftover profile folders
 rm -rf "$SKEL_PFX/drive_c/users/root" "$SKEL_PFX/drive_c/users/wexsetup"

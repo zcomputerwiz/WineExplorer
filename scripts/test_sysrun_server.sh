@@ -168,6 +168,7 @@ c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
 c4_dwm_popup     c4_build           n   c4
 c4_dwm_menu      c4_build           n   c4
+c4_drag_full_windows c4_build       n   c4
 c4_dwm_restart   c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
@@ -3856,6 +3857,13 @@ fi
 if [ "$MENUCOMP" = 0x1 ]; then ok ${2}_with_composition_has_a_shadow; else ok ${2}_without_composition_has_none; fi
 }
 if section c4_dwm_menu; then set +e; ( section_enter; dwm_menu_body normal c4_dwm_menu; true; ); section_leave $?; fi
+# A new account shows window contents while dragging, as XP does (the template prefix's default, setup-machine-root.sh)
+if section c4_drag_full_windows; then set +e; ( section_enter
+DFW="$(wine_as "$ADM" reg query 'HKCU\Control Panel\Desktop' /v DragFullWindows 2>/dev/null | tr -d '\r' |
+       awk '$1 == "DragFullWindows" { print $NF }' || true)"
+[ "$DFW" = 1 ] || fail "drag: a new account's DragFullWindows is '${DFW:-absent}', not 1 (show window contents while dragging, on in XP)"
+ok c4_drag_full_windows_on_for_a_new_account
+true; ); section_leave $?; fi
 # B120: the same after the shell's explorer was killed and started again
 if section c4_dwm_restart; then set +e; ( section_enter; dwm_menu_body restart c4_dwm_restart; true; ); section_leave $?; fi
 amb_down "$ADM"
