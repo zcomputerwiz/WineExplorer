@@ -53,6 +53,10 @@
 #                WEX_TEST_WINE): the Safe Mode Welcome screen shows Administrator and not the test
 #                account hidden through SpecialAccounts\UserList, and Administrator logs on; then, in a normal start,
 #                the logon screen shows neither
+#   journal      the systemd journal bridge (docs/EVENTLOG_JOURNAL.md), in a normal start: wex-journal-bridge.socket is
+#                active, the bridge runs as wexjournal once session 0's EventLog service has connected, and a unit that
+#                fails to start on purpose is stored in session 0's System log (its description and the failure's
+#                text, event 7000). An image without the bridge is reported, not failed.
 #   waylandsafe  Safe Mode in the Wayland session, chosen on the Welcome screen (work order A3): the message box, the
 #                desktop, WEXMODE=safe, and the session runs under wexcomp. Only when named.
 #   waylandcmd   Safe Mode with Command Prompt in the Wayland session: the recovery console runs in wexcomp (through
@@ -200,7 +204,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf|journal) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -1790,6 +1794,45 @@ phase_startnormal() {
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check
     expect_session_mode normal
+    shutdown_vm
+}
+
+phase_journal() {   # the journal bridge, in a normal start: see the header
+    local out i desc text store=/var/lib/wineexplorer/machine/drive_c/windows/system32/config/SysEvent.evt
+    start_vm
+    desktop 600
+    out=$(as_root 'systemctl is-active wex-journal-bridge.socket 2>/dev/null; systemctl cat wex-journal-bridge.socket >/dev/null 2>&1 || echo absent' \
+        | tr -d '\r' | grep -E '^(active|inactive|failed|absent)$' | tail -n 1)
+    if [ "$out" = absent ]; then
+        echo "  NOTE: this image has no journal bridge (wex-journal-bridge.socket): nothing to check"
+        shutdown_vm
+        return 0
+    fi
+    [ "$out" = active ] || fail "wex-journal-bridge.socket is ${out:-unknown}, not active"
+    # session 0's EventLog service connects (it tries every 10 s): the socket starts the bridge, as wexjournal
+    for i in $(seq 1 30); do
+        out=$(as_root 'echo "bridge=$(systemctl is-active wex-journal-bridge.service) user=$(ps -o user= -C wex-journal-bridge | head -n 1)"' \
+            | tr -d '\r' | grep '^bridge=' | tail -n 1)
+        [ "$out" = "bridge=active user=wexjournal" ] && break
+        sleep 2
+    done
+    echo "  $out"
+    [ "$out" = "bridge=active user=wexjournal" ] || fail "the bridge did not run as wexjournal: $out"
+    # a unit that fails to start: Service Control Manager 7000 in session 0's System log, with its description and the
+    # failure's text (searched in the store, UTF-16)
+    as_root "systemd-run --quiet --unit=wex-test-journal -p Type=oneshot -p 'Description=WexJ Chain Test' /bin/false" >/dev/null 2>&1 || true
+    # (grep runs as root through sudo: the store is session 0's account's, mode 0600)
+    for i in $(seq 1 30); do
+        desc=$(as_root "grep -caP 'W\\x00e\\x00x\\x00J\\x00 \\x00C\\x00h\\x00a\\x00i\\x00n\\x00' $store" | tr -d '\r' | grep -E '^[0-9]+$' | tail -n 1)
+        [ "${desc:-0}" -gt 0 ] && break
+        sleep 2
+    done
+    text=$(as_root "grep -caP 'e\\x00x\\x00i\\x00t\\x00e\\x00d\\x00 \\x00w\\x00i\\x00t\\x00h\\x00 \\x00c\\x00o\\x00d\\x00e\\x00 \\x001\\x00' $store" \
+        | tr -d '\r' | grep -E '^[0-9]+$' | tail -n 1)
+    echo "  System log: description ${desc:-none}, failure text ${text:-none}"
+    [ "${desc:-0}" -gt 0 ] || fail "the failed unit is not in session 0's System log"
+    [ "${text:-0}" -gt 0 ] || fail "the failure's text is not in the System log's record"
+    as_root 'systemctl reset-failed wex-test-journal' >/dev/null 2>&1 || true
     shutdown_vm
 }
 
