@@ -5230,4 +5230,7 @@ display: every driver failed, win32u then refused every top-level window ("no dr
 ShellExecuteEx from a session 0 setup failed with it (B108: Edge's `MicrosoftEdgeUpdate.exe /handoff` from the MSI's
 SYSTEM custom action, 0x80004005). As in Windows' non-interactive session 0, its windows now exist and are never
 shown. Test: suite section `s0_window` (`scripts/session0-window-probe.c`, 64-bit and 32-bit in session 0 without
-DISPLAY or WAYLAND_DISPLAY: a window and driver `null`; a user's session keeps its own driver).
+DISPLAY or WAYLAND_DISPLAY: a window and driver `null`; a user's session keeps its own driver). Not tested: an
+explicit `Graphics` value for session 0's account (`HKU\S-1-5-18\Software\Wine\Drivers`) overriding the new
+default; the existing read after it is unchanged. Known limit, not a regression: a session 0 service that renders
+offscreen with D3D/D2D gets no GL context from the null driver (Windows has WARP or the GPU there).
