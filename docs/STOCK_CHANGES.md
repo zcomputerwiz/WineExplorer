@@ -1,5 +1,22 @@
 # Changes to stock Wine / third-party code
 
+## coremessaging: Windows.System.DispatcherQueue (UWP, Wine branch `claude/coremessaging-dq` 9464442f, 2026-11-27)
+
+* `dlls/coremessaging/dispatcher.c` (new), `main.c`, `private.h`, `classes.idl`, `Makefile.in` (imports user32): the system
+  `Windows.System.DispatcherQueue` class did not exist, and `DispatcherQueueController::get_DispatcherQueue` and
+  `CreateOnDedicatedThread` were stubs. Now a queue belongs to one thread and runs its work from that thread's message loop through a
+  message-only window, high priority first; work can be queued from any thread. `CreateDispatcherQueueController` (current or
+  dedicated thread) and `CreateOnDedicatedThread` create real queues, the dedicated thread running its own loop. `GetForCurrentThread`
+  returns the calling thread's queue (NULL with S_OK when it has none). Timers use Win32 timers on the queue's window.
+  `ShutdownQueueAsync` raises ShutdownStarting, runs the queued work, completes, then raises ShutdownCompleted. A controller released
+  without a shutdown shuts its queue down. `GetDeferral` on the ShutdownStarting arguments is still a stub.
+* Why: on Windows 11, Windows' InputHost activates `Windows.System.DispatcherQueue` (the statics, `GetForCurrentThread`) on Notepad's
+  input thread right after it creates each input site; Wine's inputhost module (InputSite work) will use it the same way.
+* Blast radius: programs that use a system DispatcherQueue used to get E_NOTIMPL; nothing in WineExplorer's shell or scripts calls it.
+* Test: `dlls/coremessaging/tests/coremessaging.c`: the upstream tests lose their todo_wine markers; new `test_DispatcherQueue_Statics`
+  (GetForCurrentThread, priority order, a one-shot timer, a controller released without a shutdown). 267 tests, 0 failures on Wine
+  x86_64 and i386 (4 runs each) and on the Windows 11 host (x64 and x86).
+
 ## imm32: CtfImmTIMActivate, text services on window activation (UWP, Wine branch `claude/ctfimm-tim`, 2026-11-26)
 
 * `dlls/imm32/imm.c`, `imm32.spec`: `CtfImmTIMActivate(hkl, activate)` was a bare `@ stub` (a call aborted the process). It now
