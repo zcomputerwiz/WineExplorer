@@ -44,7 +44,7 @@ done
 family=$(tr -d '\r' < "install-$app.log" | sed -n 's/^Application: \(.*\)!App$/\1/p')
 echo "family $family" >> summary
 export WINEDEBUG="${2:-err+all,fixme-all}" XAMLSHIM_TRACE=1
-( sleep 25; xwd -root -silent -display "$DISPLAY" | convert xwd:- wasdk-25s.png ) &
+( sleep 25; import -display "$DISPLAY" -window root wasdk-25s.png ) &
 timeout --kill-after=10s 50s "$build/wine" $c/applaunch.exe "$family!App" > launch.log 2>&1
 echo "launcher exit $?" >> summary
 sleep 3

@@ -55,7 +55,7 @@ while [ $elapsed -lt $MAX ]; do
 done
 # the X screen does not show Uno's window surface (black): the shim reads the window's pixels back through GDI 5 s
 # after it is placed (xamlshim-window.bmp, with XAMLSHIM_TRACE=1); the X screenshot stays for the frame
-[ -n "$DISPLAY" ] && xwd -root -silent -display "$DISPLAY" | convert xwd:- quick.png 2>/dev/null
+[ -n "$DISPLAY" ] && import -display "$DISPLAY" -window root quick.png 2>/dev/null
 "$build/server/wineserver" -k
 bmp=$(find "$WINEPREFIX/drive_c/users" -name xamlshim-window.bmp 2>/dev/null | head -1)
 rm -f window.png window-*.png; [ -n "$bmp" ] && convert "$bmp" window.png 2>/dev/null

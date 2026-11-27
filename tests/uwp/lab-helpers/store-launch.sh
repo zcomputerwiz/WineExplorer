@@ -18,7 +18,7 @@ family=$(tr -d '\r' < install.log | sed -n 's/^Application: \(.*\)!App$/\1/p')
 [ -n "$HELLO" ] && export WINEAPPSERVICE_HELLO=1
 [ -n "$STACK" ] && export WINEAPPSERVICE_STACK=$STACK
 export WINEDEBUG="${1:-err+all,fixme-all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
-( sleep 20; xwd -root -silent -display "$DISPLAY" | convert xwd:- store2-20s.png; sleep 25; xwd -root -silent -display "$DISPLAY" | convert xwd:- store2-45s.png ) &
+( sleep 20; import -display "$DISPLAY" -window root store2-20s.png; sleep 25; import -display "$DISPLAY" -window root store2-45s.png ) &
 timeout --kill-after=10s ${LAUNCH_SECONDS:-60}s "$build/wine" $c/applaunch.exe "$family!${APPID:-App}" > launch2.log 2>&1
 echo "launcher exit $?" > summary2
 sleep 5

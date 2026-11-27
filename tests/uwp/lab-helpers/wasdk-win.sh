@@ -40,7 +40,7 @@ sleep ${WAIT:-30}
   timeout 30 "$build/wine" winedbg --command "info process" 2>&1 | tr -d '\r' | grep -v "^[0-9a-f]*:fixme" | head -30
   "$build/wine" enumwin.exe 2>&1
   echo "enumwin rc=$?"
-  xwd -root -silent -display "$DISPLAY" | convert xwd:- win.png 2>&1
+  import -display "$DISPLAY" -window root win.png 2>&1
   ls -la win.png
 } > win.txt 2>&1
 sleep 2
