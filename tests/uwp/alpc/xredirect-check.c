@@ -12,6 +12,25 @@
 #include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/Xcomposite.h>
+#include <X11/extensions/shape.h>
+
+/* "shape 0xWINDOW...": the bounding, clip and input SHAPE rectangles of each window */
+static void dump_shape(Display *dpy, Window w)
+{
+    static const struct { int kind; const char *name; } kinds[] = {{ShapeBounding, "bounding"}, {ShapeClip, "clip"}, {ShapeInput, "input"}};
+    unsigned int k;
+
+    for (k = 0; k < 3; k++)
+    {
+        int count = 0, order = 0, i;
+        XRectangle *r = XShapeGetRectangles(dpy, w, kinds[k].kind, &count, &order);
+
+        printf("0x%lx %s: %d rectangles:", w, kinds[k].name, count);
+        for (i = 0; i < count && i < 24; i++) printf(" %d,%d %ux%u", r[i].x, r[i].y, r[i].width, r[i].height);
+        printf("%s\n", count > 24 ? " ..." : "");
+        if (r) XFree(r);
+    }
+}
 
 static int last_error;
 
@@ -29,6 +48,12 @@ int main(int argc, char **argv)
     if (!dpy) { printf("no display\n"); return 1; }
     if (!XCompositeQueryExtension(dpy, &ev, &err)) { printf("no Composite\n"); return 1; }
     XSetErrorHandler(handler);
+    if (argc > 2 && !strcmp(argv[1], "shape"))
+    {
+        for (i = 2; i < argc; i++) dump_shape(dpy, strtoul(argv[i], NULL, 0));
+        XCloseDisplay(dpy);
+        return 0;
+    }
     if (argc > 2 && !strcmp(argv[1], "remap"))
     {
         Window w = strtoul(argv[2], NULL, 0);
