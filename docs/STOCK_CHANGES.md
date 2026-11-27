@@ -51,6 +51,37 @@ experimental entry below names its feature.
 * Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate`. Lab: imm32 test x86_64 5600 / i386 5597 tests (with the MTA cases), 0 failures. msctf's
   `inputprocessor` test times out in the lab with and without the change.
 
+## ntdll, wine.inf: Notepad.exe is told Windows 11 23H2 (workaround; UWP, Wine branch `claude/appdefaults-win11-23h2` 98fccfd7, 2026-11-27)
+
+* **Workaround, to be removed** when Wine handles the packet mode that the Windows App SDK's CoreMessagingXP uses from build
+  26100 on (owner's decision 2026-11-27: per program as an interim, the real fix stays the goal).
+* `dlls/ntdll/version.c`: a new version name `win11_23h2`. It is 10.0.22631, with the Windows 11 suite and product type (workstation)
+  and no CSD. It can be selected with `HKCU\Software\Wine\AppDefaults\<exe>\Version` like the other names.
+* `loader/wine.inf.in` (`[UserRegistry]` and `[CurrentVersion]`): `AppDefaults\Notepad.exe\Version` = `win11_23h2`. The flag keeps a
+  user's own value. Other programs keep the prefix's version (10.0.19045 as shipped).
+* Rule for further WinUI 3 apps: one `AppDefaults\<app>.exe\Version` line per app executable, added here and listed in this entry;
+  all of them are removed together when the 26100 packet mode works. Apps so far: `Notepad.exe`.
+* Why:
+  * From build 26100, CoreMessagingXP associates its wait packets with a key and APC context 0. Under Wine, a completed packet of
+    that kind is never noticed, so its DispatcherQueueTimer never ticks, and Notepad's page load waits for such a tick.
+  * Below 26100 it uses APC contexts, which Wine delivers.
+  * The probe that shows the gap is `tests/uwp/alpc/cmxp-timer-probe.c` (WineExplorer branch `claude/uwp-notepad-strips3` 930972b5):
+    with the prefix at 26100 it gets 0 Ticks under Wine and 3 on Windows 11.
+* Limits:
+  * Wine's AppDefaults match the file name only, so any program called `Notepad.exe` gets it. That includes Wine's classic Notepad
+    (harmless: it only reports 10.0.22631).
+  * Keying by package isn't possible here: the version is fixed in `version_init`, early in process start, before anything knows
+    the process's package identity.
+* Test:
+  * `dlls/ntdll/tests/rtl.c` `test_appdefaults_version` (Wine only): a copy of the test under a name with an AppDefaults entry
+    reports 10.0.22631, and the parent does not. Lab u13, x86_64 and i386: 600368/600369 tests, 0 failures.
+  * Lab, with the built `wine.inf`'s `UserInstall` section: a probe named `Notepad.exe` reports 10.0.22631, and the same probe named
+    `other.exe` reports 10.0.19045.
+* Effect on Notepad (lab u13 with Wine 51bb1a35):
+  * XAML's timer now ticks; its waiting thread no longer blocks forever.
+  * The page loaded in 1 run of 5 (with the prefix at 22631 in all of them, globally or per program). In the other runs the second
+    Start after InputSite never comes. That is the next item, and it doesn't depend on this setting.
+
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
 
 * New module `dlls/windows.security.enterprisedata` (a registered WinRT activation DLL, like windows.security.authentication.onlineid) with
