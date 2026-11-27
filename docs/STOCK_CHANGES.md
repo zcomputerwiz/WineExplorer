@@ -1,5 +1,56 @@
 # Changes to stock Wine / third-party code
 
+Convention for experimental items: work that is complete and tested but has no consumer yet stays in the code, switched off.
+`WINE_EXPERIMENTAL` turns such items on. It is a list of feature names separated by commas or spaces, compared case-insensitively;
+`all` turns every item on, while `none` or an unset variable turns none on. The variable is read when the feature is used, so a
+process may set it before then. One helper parses it: `__wine_experimental_enabled(name)` in `include/wine/experimental.h`. Each
+experimental entry below names its feature.
+
+## coremessaging: Windows.System.DispatcherQueue, experimental, off unless `WINE_EXPERIMENTAL=dispatcherqueue` (UWP, Wine branch `claude/coremessaging-dq` d840cb8f, 2026-11-27)
+
+* `include/wine/experimental.h` (new, listed in `include/Makefile.in`): the shared `WINE_EXPERIMENTAL` parser described above.
+* `dlls/coremessaging/dispatcher.c` (new), `main.c`, `private.h`, `classes.idl`, `Makefile.in` (imports user32): a system
+  `Windows.System.DispatcherQueue` class (the statics) and a real queue for `DispatcherQueueController::get_DispatcherQueue`,
+  `CreateOnDedicatedThread` and `CreateDispatcherQueueController`.
+  * A queue belongs to one thread. It runs its work from that thread's message loop through a message-only window, high priority
+    first, and any thread can queue work. A dedicated-thread queue runs its own loop.
+  * `GetForCurrentThread` returns the calling thread's queue, or NULL with S_OK when the thread has none.
+  * Timers are Win32 timers on the queue's window.
+  * `ShutdownQueueAsync` raises ShutdownStarting, runs the queued work, completes, then raises ShutdownCompleted. A controller
+    released without a shutdown shuts its queue down. `GetDeferral` on the ShutdownStarting arguments is still a stub.
+* Off (the default): the controller is the earlier stub. `get_DispatcherQueue` and `CreateOnDedicatedThread` return E_NOTIMPL,
+  `ShutdownQueueAsync` completes at once, and the DispatcherQueue class isn't served (CLASS_E_CLASSNOTAVAILABLE).
+* Why: it is a complete, tested Windows API that used to fail with E_NOTIMPL. Notepad doesn't need it: InputHost only calls
+  `GetForCurrentThread`, which returns S_OK and NULL on Windows there. It is kept for upstream; the owner's rule (2026-11-26) is to keep
+  tested work in the code, switched off.
+* Blast radius with the flag off: none, because the behaviour is the earlier stub. Nothing in WineExplorer sets the flag.
+* Test: `dlls/coremessaging/tests/coremessaging.c`.
+  * The tests turn the flag on unless `WINE_EXPERIMENTAL` is already set. The upstream tests lose their todo_wine markers, and
+    `test_DispatcherQueue_Statics` is new: GetForCurrentThread, priority order, a one-shot timer, and a controller released without a
+    shutdown.
+  * `test_experimental_off` (Wine only) clears the variable and checks the stub answers.
+  * Results: 274 tests, 0 failures on Wine x86_64 and i386. With `WINE_EXPERIMENTAL=none`, the upstream tests fail with the stub
+    answers and nothing crashes. The Windows 11 host (x64 and x86) passed the 267 tests of 9464442f; the off test is skipped there.
+
+## imm32: CtfImmTIMActivate, text services on window activation (UWP, Wine branch `claude/ctfimm-tim`, 2026-11-26)
+
+* `dlls/imm32/imm.c`, `imm32.spec`: `CtfImmTIMActivate(hkl, activate)` was a bare `@ stub` (a call aborted the process). It now
+  gives the calling thread an apartment (the existing implicit COM initialisation) and an active msctf thread manager
+  (`TF_CreateThreadMgr` + `Activate`, loaded dynamically, kept until the thread's default IME window is destroyed, whatever the apartment: Windows 11 creates it in an MTA thread too and keeps it when the thread leaves the implicit STA for the MTA); with
+  FALSE it does nothing; returns S_OK. The default IME window calls it on `IME_INTERNAL_ACTIVATE` (sent by win32u when a window of
+  the thread is activated).
+* Measured on Windows 11 (`tests/uwp/alpc/tsf-probe.c`, 64- and 32-bit): user32 calls `CtfImmTIMActivate(hkl, TRUE)` on the first
+  activation of a window of the thread (SetForegroundWindow, SetFocus, SW_SHOWDEFAULT, WS_VISIBLE), not on SW_SHOWNOACTIVATE or for
+  message-only windows; afterwards `TF_GetThreadMgr` returns the thread's manager. The 32-bit export takes two stack arguments.
+  Wine now gives the same answers for all probe cases; Windows also creates `CicMarshalWndClass` / `MSCTFIME UI` and loads
+  `TextInputFramework.dll`, which Wine's msctf does not have.
+* Why: Notepad's (Windows App SDK) UI thread gets its text services this way inside `ShowWindow`. On its own this does not move
+  Notepad further (lab b37), but it removes an abort for any caller and matches Windows.
+* Blast radius: every thread that activates a window now loads msctf.dll and holds an activated thread manager (Windows does the
+  same). Programs that create their own manager get the same per-thread object.
+* Test: `dlls/imm32/tests/imm32.c` `test_CtfImmTIMActivate`. Lab: imm32 test x86_64 5600 / i386 5597 tests (with the MTA cases), 0 failures. msctf's
+  `inputprocessor` test times out in the lab with and without the change.
+
 ## windows.security.enterprisedata: ProtectionPolicyManager (UWP, Wine branch `claude/enterprisedata-ppm`, 2026-11-26)
 
 * New module `dlls/windows.security.enterprisedata` (a registered WinRT activation DLL, like windows.security.authentication.onlineid) with
@@ -28,6 +79,15 @@
 * Test: `dlls/user32/tests/msg.c` (`test_IsGUIThread`): main thread TRUE; a new thread FALSE twice, then TRUE after PeekMessage, or
   after `IsGUIThread(TRUE)`. Wine lab, x86_64 and i386: the new checks pass; the msg test's other 188 failures (focus, PrintWindow,
   window regions under Xvfb) are the same with and without the change.
+* Follow-up (Wine branch `claude/isguithread-win32k` 46da8d46, 2026-11-27): Windows converts on the first win32k call of any kind
+  (probe: RegisterClassW, GetClassInfoExW, CreateCompatibleDC, LoadCursorW, SystemParametersInfoW, GetKeyState and more all give 1).
+  `dlls/win32u/sysparams.c` `set_gui_thread()`, called at the start of `NtUserRegisterClassExWOW`, `NtUserGetClassInfoEx`
+  (`class.c`) and `alloc_dc_ptr` (`dc.c`), which do not touch the thread's queue or session data. Notepad's UI thread calls only
+  RegisterClassW before CoreMessagingXP asks; it now gets TRUE as on Windows and registers its wake packet directly on its Init2
+  port (no private port). Not counted (client-side in Wine): RegisterWindowMessageW, GetStockObject, GetDpiForSystem,
+  SetThreadDpiAwarenessContext. Test: `msg.c` `is_gui_thread_first_call_proc` (RegisterClassW, GetClassInfoExW, CreateCompatibleDC
+  on a fresh thread). Lab msg test: x86_64 188 failures (as before); i386 207 failures with and without the change, on identical
+  lines (WM_COPYDATA, PrintWindow, focus, regions); none in the IsGUIThread tests.
 
 ## ntdll: a package's own DLL beats a builtin of the same name (UWP, Wine branch `claude/package-dll-load-order`, 2026-11-26)
 
@@ -4854,6 +4914,7 @@ an empty client id means the client ids the calling process has used); `Invalida
 
 2026-11-23 (UWP, Wine branch `claude/staterepository`, found by running Notepad of the Windows App SDK, `docs/uwp/WINAPPSDK.md`):
 - `server/completion.c`, `server/thread.c`: fixes to the wait completion packets (the port of merge request 6911): the packet is initialised after allocation, it holds the sync object whose queue it is on, the wake loop is safe against removal, an object without a wait state is refused (`STATUS_INVALID_PARAMETER_3`). Wine 0e5c3352.
+- `server/completion.c` (`completion_wait_satisfied`): a wait completion packet taken by a thread already waiting in `NtRemoveIoCompletion` can be associated again; it stayed marked as queued, and the next `NtAssociateWaitCompletionPacket` failed with `STATUS_INVALID_PARAMETER_1` (UWP, 2026-11-27). CoreMessagingXP re-arms its packets every round, among them the one on its DispatcherQueueTimer. Test `test_rearm_wait_completion_packet` in `dlls/ntdll/tests/file.c`: Wine x86_64 3215 / i386 3225 file tests and Windows 11 x64 3227, 0 failures. Wine branch `claude/waitpkt-rearm` 51bb1a35.
 - ALPC (`server/alpc.c`, `server/protocol.def` with the generated `include/wine/server_protocol.h`, `server/request_handlers.h`, `server/request_trace.h`, `dlls/ntdll/unix/alpc.c`, `dlls/wow64/syscall.c`, `server/directory.c`): `NtAlpcConnectPort`, `NtAlpcAcceptConnectPort`, `NtAlpcSendWaitReceivePort`, `NtAlpcDisconnectPort` and `NtAlpcImpersonateClientOfPort` were stubs. The server now keeps the message queues of a connection port and of the two communication ports of each connection; requests, replies, datagrams, the connection request and answer, the port closed message and the context attribute follow what Windows 11 does (test `dlls/ntdll/tests/alpc.c`, 0 failures on Windows 11 and on Wine, x64 and x86; `tests/uwp/alpc/alpc-probe.c` prints the raw behaviour). `\RPC Control`, the directory of the connection ports of Windows, is a new root directory. Server protocol version 987. Not implemented: views, handle and security attributes of messages, completion lists. Wine abf3d5e1. `CoreMessagingXP.dll` of the Windows App Runtime hosts its registrar in the process and needs this.
 - `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`: `NtAlpcQueryInformation`, the basic information class only (Wine 41b441a5).
 - `dlls/twinapi.appcore/static_lifetime.c` (new), `core_application.c`, `private.h`, `Makefile.in`: `IStaticLifetime` of `Windows.ApplicationModel.Core.CoreApplication` and its collection, the process-wide map of the factories of C++/WinRT classes with static lifetime (Wine 372efb0c).
