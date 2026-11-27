@@ -284,6 +284,17 @@ way.
      After each fix the runs became more alike; with all of them every run is identical to the pixel. Result: ten runs in a
      row, hosted foot and the plain window, 60 of 60 checks each (top left kept, size 1.5 times at 150% and back at 100%,
      no drift over three cycles).
+   - **Interactive resize of a hosted window with accept-committed-size ("A"), stall measured (2026-11-27):**
+     `scripts/wexbuild-root/wayland-hosted-resize.sh` (headless wexcomp 1120df36, the shell and driver above, a real
+     foot hosted in a Wine frame; a virtual pointer, `scripts/wex-vpointer.c`, drags the frame's bottom-right corner; the
+     stall is the time from wexhost's "accepted" to "complete" for each resize transaction). With "show window contents
+     while dragging" on: ten runs of 8 steps 400 ms apart, every transaction completes, median stall 16 ms (one frame),
+     the slowest single step 77 ms; ten runs of 16 steps 50 ms apart, every transaction completes, stalls 14-31 ms. Every
+     run: the top left stays, the frame grows with the drag, and at the end foot fills the frame's client area at its own
+     cell-grid size. Outline drag ("show window contents while dragging" off): each step supersedes the unpublished one
+     and the last completes at the release, as on Windows. **Note:** that setting is off in a fresh WineExplorer prefix
+     (Wine's default; nothing sets `HKCU\Control Panel\Desktop\DragFullWindows`), while XP has it on, so every window
+     resizes as an outline today; a parity item for the defaults, not for this compositor work.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
