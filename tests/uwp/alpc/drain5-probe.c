@@ -28,6 +28,12 @@ static const char *where = "?";
 static ULONG_PTR keybuf[2][8];
 static HWND g_hwnd;
 static void step(HWND hwnd, int npackets, void *apc);
+static WNDPROC orig_proc;
+static LRESULT CALLBACK sub_proc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    if (m == 0x60) printf("    [subclass sees 0x60 (%#Ix, %#Ix)]\n", w, l);
+    return CallWindowProcW(orig_proc, h, m, w, l);
+}
 
 static LONG depth(void)
 {
@@ -41,7 +47,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     if (m == WM_USER + 5) { const char *s = where; where = (const char *)l; step(h, 1, NULL); where = s; return 0; }
     if (m != 0x60) return DefWindowProcW(h, m, w, l);
-    printf("    0x60 (%#Ix, %#Ix)%s in %s, depth %ld\n", w, l, InSendMessageEx(NULL) & ISMEX_SEND ? " sent" : "", where, depth());
+    printf("    0x60 (%#Ix, %#Ix) ism %#lx in %s, depth %ld\n", w, l, InSendMessageEx(NULL), where, depth());
+    if (w == 5 && l == 0x55)   /* the (5, 0x55) callback message: re-associate and drain inside it, as CoreMessagingXP's (5,5) does */
+    {
+        const char *s = where;
+        where = "the (5,0x55) callback message";
+        step(h, 1, NULL);
+        where = s;
+    }
     return 0;
 }
 
@@ -78,7 +91,14 @@ static void step(HWND hwnd, int npackets, void *apc)
     }
     { static char buf[64]; snprintf(buf, sizeof(buf), "drain (from %s)", where); where = buf; }
     memset(b, 0xa5, sizeof(b));
-    r = pDrain2(hwnd, b[0], b[1], b[2]);
+    {
+        /* D5_ARGS: "rdx0" passes NULL as the second argument (CoreMessagingXP's drain right after a re-association does),
+         * "null" passes NULL for all three; default: three buffers */
+        const char *a = getenv("D5_ARGS");
+        if (a && !strcmp(a, "rdx0")) r = pDrain2(hwnd, NULL, b[1], b[2]);
+        else if (a && !strcmp(a, "null")) r = pDrain2(hwnd, NULL, NULL, NULL);
+        else r = pDrain2(hwnd, b[0], b[1], b[2]);
+    }
     printf("  drain returns %lu, depth %ld\n", r, depth());
     pump("peek after drain");
     {
@@ -105,11 +125,38 @@ int main(void)
     pQuery = (void *)GetProcAddress(ntdll, "NtQueryIoCompletion");
     pRemove = (void *)GetProcAddress(ntdll, "NtRemoveIoCompletion");
     if (!p2669 || !pDrain2 || !pCreate || !pAssoc || !pQuery || !pRemove) { printf("missing exports\n"); return 1; }
-    wc.lpfnWndProc = wndproc; wc.hInstance = GetModuleHandleA(NULL); wc.lpszClassName = L"Drain5Probe";
-    RegisterClassW(&wc);
-    hwnd = CreateWindowExW(0, L"Drain5Probe", NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
-    g_port = (HANDLE)p2669(hwnd, &out);
-    SetTimer(hwnd, 1, 0x7fffffff, NULL);
+    {
+        /* variants, to find what makes Windows treat CoreMessagingXP's window differently: D5_CLASS (class name), D5_STYLE and
+         * D5_EXSTYLE (hex), D5_STA (CoInitializeEx apartment-threaded first), D5_CALLBACK (a deferred (5,5) callback message
+         * queued before the drains, as CoreMessagingXP does), D5_2582 (ordinal 2582 once before) */
+        const char *cls = getenv("D5_CLASS"), *st = getenv("D5_STYLE"), *ex = getenv("D5_EXSTYLE");
+        WCHAR name[64];
+        DWORD style = st ? strtoul(st, NULL, 16) : 0, exstyle = ex ? strtoul(ex, NULL, 16) : 0;
+
+        MultiByteToWideChar(CP_ACP, 0, cls ? cls : "Drain5Probe", -1, name, 64);
+        if (getenv("D5_STA")) CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        wc.lpfnWndProc = wndproc; wc.hInstance = GetModuleHandleA(NULL); wc.lpszClassName = name;
+        RegisterClassW(&wc);
+        hwnd = CreateWindowExW(exstyle, name, NULL, style, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
+        printf("window %p class %ls style %#lx exstyle %#lx%s%s\n", hwnd, name, style, exstyle,
+               getenv("D5_STA") ? " STA" : "", getenv("D5_CALLBACK") ? " callback" : "");
+        g_port = (HANDLE)p2669(hwnd, &out);
+        if (getenv("D5_SUBCLASS"))   /* subclassed after the registration: does the drain's message go through the new procedure? */
+            orig_proc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)sub_proc);
+        SetTimer(hwnd, 1, 0x7fffffff, NULL);
+        if (getenv("D5_CALLBACK")) SendMessageCallbackW(hwnd, 0x60, 5, 5, NULL, 1);
+        if (getenv("D5_2582"))
+        {
+            ULONG (WINAPI *p2582)(HWND) = (void *)GetProcAddress(user32, (LPCSTR)2582);
+            if (p2582) printf("2582 returns %lu\n", p2582(hwnd));
+        }
+    }
+    if (getenv("D5_KEYS"))   /* keys laid out like CoreMessagingXP's: a heap record { 0, id } */
+    {
+        ULONG_PTR *k0 = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16), *k1 = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16);
+        k0[1] = 0x40000002; k1[1] = 0x40000402;
+        memcpy(keybuf[0], k0, 16); memcpy(keybuf[1], k1, 16);
+    }
     printf("port %p, keys %p %p\n", g_port, keybuf[0], keybuf[1]);
     pump("start");
     step(hwnd, 1, NULL);
@@ -123,5 +170,9 @@ int main(void)
     PostMessageW(hwnd, WM_USER + 5, 0, (LPARAM)"a posted message");
     pump("posted");
     pump("after posted");
+    printf("-- inside a deferred callback message (SendMessageCallback):\n");
+    SendMessageCallbackW(hwnd, 0x60, 5, 0x55, NULL, 1);
+    pump("callback");
+    pump("after callback");
     return 0;
 }

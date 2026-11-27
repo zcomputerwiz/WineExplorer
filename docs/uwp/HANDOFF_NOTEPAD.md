@@ -808,3 +808,22 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   - Possibly Windows ALPC port waits behave differently from our "signaled when a message is queued" (for example, a port is
     signaled only for messages the waiter could receive).
 - Lab: the guest disk filled with relay logs (79 GB); old logs were deleted, keep b46/b49/b50.
+
+## 2026-11-27 (evening): ALPC synchronous replies fixed; Notepad's page loads (2 of 2)
+
+- Cause of the lost second tick: our server made an ALPC client port signaled for every waiter when the reply to a synchronous
+  request was queued.
+  - Windows (ntdll alpc test, waitable client): a port created with ALPC_PORFLG_WAITABLE_PORT 0x40000 (CoreMessagingXP uses
+    0x00070000) isn't signaled while idle, and a wait packet on it doesn't fire for a synchronous reply.
+  - Ports without the flag are always signaled on Windows.
+  - Fix: Wine claude/alpc-sync-reply 74e1c977 (batch 1149). The edge case of a reply whose thread has exited is on
+    claude/alpc-sync-reply-dead 44892941.
+- Notepad b51 and b52 (per-app 23H2 + this fix): the page loads and the editor draws with a caret. Tab bar and status bar are still
+  black.
+- 26100 mode, still open. On Windows (cmxp-timer-probe with CMXP_HANDLES) the UI thread's Init2 port watches only an event and the
+  Timer, the same objects as in Wine.
+  - drain5-probe variants on Windows all get the nested (3,0) inside Drain2: class DcppUserAdapterWindowClass, styles
+    0x4c00000/0x100, STA, a pending (5,5) callback, #2582, Drain2 arguments (rdx 0, all NULL), CoreMessagingXP-like keys
+    ({0, id}), a subclass installed after Init2, and a drain inside a SendMessageCallback message.
+  - CoreMessagingXP's own window (subclassed in cmxp-timer-probe) never gets a nested 0x60 during its drain, yet it ticks.
+  - So the difference isn't the window, the context or the arguments. Not resolved.

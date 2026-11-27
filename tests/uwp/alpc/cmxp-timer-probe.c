@@ -239,5 +239,19 @@ int main(int argc, char **argv)
         if (GetTickCount() > end) break;
     }
     printf("end: %d ticks\n", ticks);
+    if (getenv("CMXP_HANDLES"))
+    {
+        /* the type of every handle of this process (what CoreMessagingXP's wait packets point at) */
+        typedef LONG (WINAPI *query_object_t)(HANDLE, int, void *, ULONG, ULONG *);
+        query_object_t query = (void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryObject");
+        ULONG_PTR h;
+
+        for (h = 4; h < 0x800; h += 4)
+        {
+            struct { USHORT len, max; WCHAR *buf; WCHAR text[128]; } type;
+            if (query((HANDLE)h, 2, &type, sizeof(type), NULL)) continue;
+            printf("handle %#Ix: %.*ls\n", h, type.len / 2, type.buf);
+        }
+    }
     return 0;
 }
