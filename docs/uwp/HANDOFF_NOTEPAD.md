@@ -313,8 +313,11 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          unknown interface, no fail-fast.
        * After it (750.0) the CoreMessaging rounds on both threads stop again; no page load (1 clock call, no surfaces). On
          Windows InputHost itself activates `Windows.System.DispatcherQueue` here and creates a `SystemUserAdapterWindowClass`
-         window with an Init2 registration on the input thread; the Wine module does not. Next: what the rounds wait for after
-         InputSite.
+         window with an Init2 registration on the input thread; the Wine module does not.
+       * The rounds are not stuck at the end: by 750.014 both wake packets are re-armed (UI 0x118, input 0x2d8, diagnostic) and both
+         threads wait with nothing queued; nobody brings new work. On Windows the UI thread's page load (PropertyValue, Uri, then the
+         TabView templates about 4 s later) follows; the composition thread there waits on DCompositionWaitForCompositorClock about
+         28 times per run, under Wine once (then it blocks). Next: the compositor clock thread (dcomp: tell Session 0 first).
        * Lab trap: the guest's disk filled up (79 GB); old relay logs b26d..b36 and from.log are now gzipped in place.
      - **The re-arm is the gate, InputSite is next (2026-11-27, night; lab b39, diagnostic only).**
        * Diagnostic (lab tree only, never for a branch; `rearm-diag.py` in the session scratchpad, env `WINE_CM_REARM=1`): ntdll
