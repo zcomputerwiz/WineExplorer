@@ -66,6 +66,10 @@ done
 
 export VMTEST_DIR=${VMTEST_DIR:-/var/tmp/vmtest-gpt}
 export WEX_SAFEMODE_FILES=${WEX_SAFEMODE_FILES:-installed}
+# The screenshot checks crop a few hundred pixels with ImageMagick and read them with Tesseract; both start a thread per
+# CPU for each call, so the jobs' screenshots took about 8 of the host's 16 CPUs (batch 1148) and starved the guests
+# (their serial consoles stopped answering, KNOWN_BUGS B129). One thread each is as fast for images this small.
+export MAGICK_THREAD_LIMIT=${MAGICK_THREAD_LIMIT:-1} OMP_THREAD_LIMIT=${OMP_THREAD_LIMIT:-1}
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECKOUT=$(cd "$HERE/../.." && pwd)
 OUT=/var/tmp/wex-chain/$NAME
