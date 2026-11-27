@@ -7,6 +7,7 @@ EXTRADLLFLAGS = -mconsole -municode
 # shipping build (broker_internal.h).
 SOURCES = \
 	broker0.c \
+	caller_class.c \
 	cred_dialog.c \
 	decision.c \
 	launch_prep.c \

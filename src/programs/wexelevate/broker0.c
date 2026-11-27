@@ -216,16 +216,11 @@ static void r9b_release( struct r9b *b, uint32_t outcome )
 
 /* B132: session 0 maps a session's system role to the account whose uid runs it, so its token no longer says SYSTEM;
  * session 0's server says what it is, as a caller class (WEX_CALLER_SESSION_SYSTEM, wine/wex_caller.h), as the
- * EventLog and wexmsiserver gates ask it. The server request needs Wine's headers and ntdll: in the Wine tree
- * (__WINESRC__, the lab build) B0 asks it; the plain MinGW builds of scripts/test_broker_e1s18.sh are compile checks
- * that are never run, and there B0 admits nobody by class. */
-#ifdef __WINESRC__
-#include "wine/wex_caller.h"
-#else
+ * EventLog and wexmsiserver gates ask it. The request is in caller_class.c (wine/server.h's protocol header defines a
+ * tag "request" that the broker's struct request collides with); here only the class constants. */
 #define WEX_CALLER_CONSTANTS_ONLY
 #include "wine/wex_caller.h"
-static unsigned int wex_caller_class_of_pipe( HANDLE pipe ) { (void)pipe; return WEX_CALLER_NONE; }
-#endif
+extern unsigned int r9b_caller_class( HANDLE pipe );
 
 /* The client is a session's system role (the bridge described its token; session 0 bound it to the peer server's
  * account and, since B132, mapped it to that account: WEX_CALLER_SESSION_SYSTEM), and session 0's server names the
@@ -236,7 +231,7 @@ static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
 {
     PSID system_sid = NULL;
     HANDLE token = NULL;
-    unsigned int class = wex_caller_class_of_pipe( pipe );
+    unsigned int class = r9b_caller_class( pipe );
     BOOL ok = class == WEX_CALLER_SESSION_SYSTEM;
     char trace[64];
 
