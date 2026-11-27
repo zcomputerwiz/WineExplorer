@@ -31,7 +31,9 @@
  *   caps connections|handles|subs  fill one per-account cap; prints how many were granted and the refusal
  *   notify LOG SECONDS             wait for one record written to LOG
  *   hold LOG SECONDS               a handle and a subscription that reconnect after a restart of the service
- *   sqos                           the client's open asks for identification level only (prints the flags) */
+ *   sqos                           the client's open asks for identification level only (prints the flags)
+ *   tokenview                      this caller's token as session 0's services see it (tokenview=STATUS user= owner=
+ *                                  sy= ba= integrity= syaccess=), for the link-bound token hardening */
 
 #include <windows.h>
 #include <winternl.h>
@@ -480,6 +482,17 @@ int main( int argc, char **argv )
         /* the class the server gives this caller (H3): 0 none, 1 user, 2 elevated administrator, 3 system-local */
         status = call( pipe, WEX_EVTLOG_CALLER, 0, 0, 0, NULL, 0, &out, NULL, NULL );
         printf( "caller=%lu class=%u\n", (unsigned long)status, out.arg[0] );
+        return 0;
+    }
+    if (!strcmp( argv[1], "tokenview" ))
+    {
+        /* the link-bound token hardening: this caller's token as a service of session 0 sees it */
+        BYTE *body = NULL;
+        DWORD body_size = 0;
+
+        status = call( pipe, WEX_EVTLOG_TOKENVIEW, 0, 0, 0, NULL, 0, &out, &body, &body_size );
+        printf( "tokenview=%lu %.*s\n", (unsigned long)status, body ? (int)body_size : 0, body ? (char *)body : "" );
+        free( body );
         return 0;
     }
     if (!strcmp( argv[1], "report" ) && argc >= 5)

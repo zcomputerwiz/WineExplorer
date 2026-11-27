@@ -200,6 +200,7 @@ s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
 s0_scmloop       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
+s0_hardening     s0_base,c5_build   n   s0
 s0_accounts      s0_base,c5_build   n   s0
 s0_x0            s0_base            l   lab
 s0_accounts_svc  s0_base            n   s0
@@ -5489,6 +5490,58 @@ done
 s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
 s0_wine reg delete "$EVK\\Security\\WexL1Sec" /f >/dev/null || true
 el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
+if section s0_hardening; then set +e; ( section_enter
+# Link-bound tokens (docs/SESSION0_CROSS_SERVER.md, "Link-bound tokens"; B132): what a user's server describes beyond
+# its user is checked against session 0's own accounts record. A session's system role (SYSTEM inside the user's own
+# server, under the user's uid) is never session 0's SYSTEM: in session 0 it is that user's limited token, SY
+# deny-only (so a SYSTEM-only access check fails) and its owner the user. Seen through the bridged event log pipe by
+# the service's own impersonation (eventlog-probe's tokenview). Before the fix the system role passed as SYSTEM.
+cc=x86_64-w64-mingw32-gcc
+$cc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evh64.exe" "$SRC/scripts/eventlog-probe.c" \
+    -ladvapi32 -lntdll || fail "hardening: cannot build the probe"
+chmod 0755 "$ROOT/probes/evh64.exe"
+v() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2 || true; }
+sid_of() { as_wine "$1" "$ROOT/probes/tierprobe64.exe" whoami | sed -n 's/^user=//p'; }
+STD_SID="$(sid_of "$STD")"; ADM_SID="$(sid_of "$ADM")"
+[ -n "$STD_SID" ] && [ -n "$ADM_SID" ] || fail "hardening: no SIDs for the test accounts"
+# the system role: the probe as a known system program of the machine root (as s0_eventlog does), run with the
+# system group in the user's own session
+mv "$M/drive_c/windows/system32/winedevice.exe" "$M/drive_c/windows/system32/winedevice.exe.hdorig"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/evh64.exe" "$M/drive_c/windows/system32/winedevice.exe"
+sysrole_of() { local u="$1"; shift; run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r'; }
+H_STD="$(sysrole_of "$STD" tokenview)"; H_STDC="$(sysrole_of "$STD" caller)"
+H_ADM="$(sysrole_of "$ADM" tokenview)"; H_ADMC="$(sysrole_of "$ADM" caller)"
+mv -f "$M/drive_c/windows/system32/winedevice.exe.hdorig" "$M/drive_c/windows/system32/winedevice.exe"
+echo "hardening: $STD's system role: $H_STD (class $(v class <<<"$H_STDC"))"
+echo "hardening: $ADM's system role: $H_ADM (class $(v class <<<"$H_ADMC"))"
+[ "$(v tokenview <<<"$H_STD")" = 0 ] || fail "hardening: no token view of $STD's system role: $H_STD"
+# (a) the hole: the system role passed session 0's checks as SYSTEM
+[ "$(v user <<<"$H_STD")" = "$STD_SID" ] && [ "$(v sy <<<"$H_STD")" = denyonly ] && [ "$(v syaccess <<<"$H_STD")" = 0 ] ||
+    fail "hardening: a standard user's system role is SYSTEM in session 0 (user, SY, a SYSTEM-only check): $H_STD"
+ok st_hardening_a_sessions_system_role_is_not_session0s_system
+# (b) its owner is the user; (c) the limitation: an alias the record does not model (Backup Operators) is never
+# enabled for it, and Administrators is deny-only, Medium
+[ "$(v owner <<<"$H_STD")" = "$STD_SID" ] || fail "hardening: the system role's owner in session 0: $H_STD"
+[ "$(v ba <<<"$H_STD")" = denyonly ] && [ "$(v bo <<<"$H_STD")" != enabled ] && [ "$(v integrity <<<"$H_STD")" = 2000 ] ||
+    fail "hardening: the system role's groups or integrity were believed: $H_STD"
+ok st_hardening_the_system_roles_owner_groups_and_integrity_are_the_users
+# (d) an administrator's system role is the administrator's limited token (no UAC bypass)
+[ "$(v user <<<"$H_ADM")" = "$ADM_SID" ] && [ "$(v sy <<<"$H_ADM")" = denyonly ] && [ "$(v ba <<<"$H_ADM")" = denyonly ] &&
+    [ "$(v integrity <<<"$H_ADM")" = 2000 ] && [ "$(v syaccess <<<"$H_ADM")" = 0 ] && [ "$(v class <<<"$H_ADMC")" = 1 ] ||
+    fail "hardening: an administrator's system role is more than the limited token: $H_ADM"
+ok st_hardening_an_administrators_system_role_is_the_limited_token
+# the positive control: the administrator elevated through the broker keeps Administrators, High, elevated class
+EL_TV="$EL/tokenview.txt"
+el_up "$ADM"
+el_cmd hardening_elevated_admin_tokenview "$ADM" "$(winpath "$ROOT/probes/evh64.exe") tokenview > $(winpath "$EL_TV") & $(winpath "$ROOT/probes/evh64.exe") caller >> $(winpath "$EL_TV")"
+el_down "$ADM"
+H_EL="$(tr -d '\r' < "$EL_TV" 2>/dev/null)"
+echo "hardening: $ADM elevated: $H_EL"
+[ "$(v user <<<"$H_EL")" = "$ADM_SID" ] && [ "$(v ba <<<"$H_EL")" = enabled ] && [ "$(v integrity <<<"$H_EL")" = 3000 ] &&
+    [ "$(v class <<<"$H_EL")" = 2 ] || fail "hardening: the elevated administrator lost what it has: $H_EL"
+ok st_hardening_the_elevated_administrator_keeps_administrators
+kill_servers
 true; ); section_leave $?; fi
 if section s0_accounts; then set +e; ( section_enter
 # H1: accounts_forward, the accounts service's way to the root helper. scripts/accounts-probe.c stands in for the
