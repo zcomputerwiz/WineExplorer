@@ -217,6 +217,33 @@ consumed** (`server/thread.c`). So:
 - Threads of another server, handles inside a remote process (`DuplicateHandle`), and memory writes: not in this
   design.
 
+**X3 as built (2026-11-27, Wine `claude/x3-process-waits`, `server/session0_xproc.c`):**
+- Routing: session 0's `open_process` asks `session0_id_owner` whose live block the id is in (not session 0's own) and
+  `x_peer_of_server` for that server's epoch. No link: `STATUS_INVALID_CID`, as before X3.
+- The open is asynchronous, in the `accounts_forward` pattern: `open_process` answers `STATUS_PENDING` with a call
+  object in its handle; `NtOpenProcess` waits on it and takes the handle with the new request `x_process_result`. The
+  call runs `OPEN` (kind `WEX_X_KIND_PROCESS`, the name is the id), then `INFO` (new frame `WEX_X_INFO`, class in the
+  body) when the limited query right was granted, then `SUBSCRIBE` when `SYNCHRONIZE` was. A wait-only open asks the
+  owner nothing more.
+- Queries: the owner answers `INFO` from its own process (`struct wex_x_process_info`: `get_process_info`'s fields and
+  the image's NT name), with the limited query right in the entry, for the listed classes only (others: a FIXME per
+  class at the owner, `STATUS_NOT_SUPPORTED`). Session 0 takes it at the open and again at the death notice, and
+  `get_process_info` / `get_process_image_name` on the remote handle answer from it, so `ProcessBasicInformation`,
+  `ProcessTimes`' creation and exit times, `ProcessSessionInformation`, `ProcessWow64Information`,
+  `ProcessImageFileName(Win32)` and `GetPriorityClass` work without a round trip per query. Limit: a priority class
+  changed after the open is not seen (taken again at the death notice only). User and kernel times are 0, as Wine
+  gives them for any process but the caller's own.
+- Every other request on the remote handle (`get_process_from_handle`) is `STATUS_NOT_SUPPORTED`.
+- The remote object has its own type (named "Process", the process type's mapping), so SeDebugPrivilege's rule for
+  processes does not apply to it, and a descriptor that allows exactly the granted rights: `DuplicateHandle` asking
+  for more is `STATUS_ACCESS_DENIED`, for less is narrowed by session 0 as for any handle.
+- Death: the owner's process end calls `x_object_changed` (a stock change); the notice makes session 0 ask `INFO`
+  again (exit code, end time) and signal the object. The owner's epoch ending (M6) signals it with exit status
+  `STATUS_CONNECTION_DISCONNECTED`; so does a refresh the owner cannot answer.
+- The owner refuses the kind in session 0 itself (`STATUS_ACCESS_DENIED`): a user's server never opens session 0's
+  processes or another user's (M3's first rule).
+- `WEX_SESSION0_VERSION` 9 (the new frame and kind). Tests: suite section `s0_xproc` (`scripts/x3-process-probe.c`).
+
 ## M4. Global sections: anonymous, exact-sized, sealed (P2)
 
 Only **anonymous (pagefile-backed) sections** are shared across servers. Session 0 creates the backing itself for a

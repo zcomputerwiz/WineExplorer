@@ -198,6 +198,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_xproc         s0_base            n   s0
 s0_scmloop       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
 s0_accounts      s0_base,c5_build   n   s0
@@ -5797,6 +5798,80 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+if section s0_xproc; then set +e; ( section_enter
+# X3 (docs/SESSION0_CROSS_SERVER.md, M3): a program in session 0 opens a process of a user's session (its id is in a
+# block the session's server leased) over the X0 link. The session's server checks the rights and answers from its
+# own data; session 0 waits on the process and reads its exit code; other operations on it are not served, and a
+# handle to it cannot be widened. When the session's server ends, the wait ends too (M6). Callers in a session still
+# cannot open session 0's processes. 64-bit and 32-bit openers.
+for b in 64 32; do
+    if [ $b = 64 ]; then CC=x86_64-w64-mingw32-gcc; else CC=i686-w64-mingw32-gcc; fi
+    $CC -O2 -Wall -municode -o "$ROOT/probes/x3probe$b.exe" "$SRC/scripts/x3-process-probe.c" -lntdll ||
+        fail "s0_xproc: cannot build the probe ($b)"
+done
+X3D="$ROOT/x3"; rm -rf "$X3D"; install -d -m 1777 "$X3D"
+x3_sleeper()   # tag seconds code: a program of $STD's session in the background; prints its process id
+{
+    rm -f "$X3D/$1.pid"
+    wine_as "$STD" "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/$1.pid")" "$2" "$3" >/dev/null 2>&1 &
+    for i in $(seq 1 60); do [ -s "$X3D/$1.pid" ] && break; sleep 0.5; done
+    tr -d '\r\n' < "$X3D/$1.pid" 2>/dev/null
+}
+val() { sed -n "s/^$1=//p" <<<"$2"; }
+for b in 64 32; do
+    TP="$(x3_sleeper s$b 6 7)"
+    [ -n "$TP" ] || fail "s0_xproc: $STD's sleeper did not start ($b)"
+    # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE
+    OUT="$(s0_wine "$ROOT/probes/x3probe$b.exe" open "$TP" 101001 30000 | tr -d '\r')"
+    echo "s0_xproc $b-bit:"; sed 's/^/  /' <<<"$OUT"
+    [ "$(val open "$OUT")" = ok ] || { echo "$OUT" >&2; fail "X3: session 0 cannot open $STD's process ($b)"; }
+    [ "$(val basic "$OUT" | cut -d' ' -f1)" = "$TP" ] && [ "$(val basic "$OUT" | cut -d' ' -f3)" = 103 ] ||
+        { echo "$OUT" >&2; fail "X3: the basic information is not the owner's ($b)"; }
+    grep -qi '^image=.*x3probe64\.exe$' <<<"$OUT" && grep -qi '^image32=.*x3probe64\.exe$' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "X3: the image name is not the owner's ($b)"; }
+    S="$(val session "$OUT")"; [ -n "$S" ] && [ "$S" != 0 ] && [ "${S#error}" = "$S" ] ||
+        { echo "$OUT" >&2; fail "X3: the session is not the user's ($b)"; }
+    [ "$(val times "$OUT")" = "set 0" ] && [ "$(val wow64 "$OUT")" = 0 ] && [ "$(val priority "$OUT")" = 20 ] ||
+        { echo "$OUT" >&2; fail "X3: times, wow64 or priority class not answered ($b)"; }
+    [ "$(val cmdline "$OUT")" = c00000bb ] && [ "$(val terminate "$OUT")" = "error 50" ] ||
+        { echo "$OUT" >&2; fail "X3: an operation outside M3 is not refused as not supported ($b)"; }
+    [ "$(val dupwide "$OUT")" = "error 5" ] || { echo "$OUT" >&2; fail "X3: a handle was widened beyond the grant ($b)"; }
+    [ "$(val wait "$OUT")" = 0 ] && [ "$(val exit "$OUT")" = 7 ] && [ "$(val timesafter "$OUT")" = "set set" ] ||
+        { echo "$OUT" >&2; fail "X3: the wait or the exit code is not the process's ($b)"; }
+    wait
+done
+ok st_session0_waits_on_and_queries_a_sessions_process
+# a wait-only open (SYNCHRONIZE) needs no query right and still ends with the process
+TP="$(x3_sleeper w 3 0)"
+OUT="$(s0_wine "$ROOT/probes/x3probe64.exe" open "$TP" 100000 30000 | tr -d '\r')"
+[ "$(val open "$OUT")" = ok ] && [ "$(val wait "$OUT")" = 0 ] && [ "$(val basic "$OUT")" = "error c0000022" ] ||
+    { echo "$OUT" >&2; fail "X3: a wait-only open"; }
+wait
+ok st_session0_wait_only_open_of_a_sessions_process
+# M6: the session's server ends while session 0 waits: the wait ends, with the owner-gone status
+TP="$(x3_sleeper g 120 0)"
+s0_wine "$ROOT/probes/x3probe64.exe" open "$TP" 101000 60000 > "$X3D/gone.out" &
+G=$!
+sleep 4
+pkill -9 -u "$STD" -x wineserver 2>/dev/null || true
+wait "$G"
+OUT="$(tr -d '\r' < "$X3D/gone.out")"
+[ "$(val wait "$OUT")" = 0 ] && [ "$(val exit "$OUT")" = c000020c ] ||
+    { echo "$OUT" >&2; fail "X3: the wait did not end with the session's server"; }
+kill_servers
+ok st_session0_wait_ends_when_the_sessions_server_does
+# a session still cannot open session 0's processes (M3: callers in session 0 only)
+rm -f "$X3D/s0.pid"
+s0_wine "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/s0.pid")" 15 0 >/dev/null &
+for i in $(seq 1 60); do [ -s "$X3D/s0.pid" ] && break; sleep 0.5; done
+SP="$(tr -d '\r\n' < "$X3D/s0.pid" 2>/dev/null)"
+[ -n "$SP" ] || fail "s0_xproc: session 0's sleeper did not start"
+OUT="$(as_wine "$STD" "$ROOT/probes/x3probe64.exe" open "$SP" 101000 0)"
+grep -q '^open=error' <<<"$OUT" || { echo "$OUT" >&2; fail "X3: a session opened session 0's process $SP"; }
+wait
+kill_servers
+ok st_sessions_still_cannot_open_session0_processes
 true; ); section_leave $?; fi
 if section s0_scmloop; then set +e; ( section_enter
 # B109: the calls that a session forwards to session 0 (T5.4) failed with 1722 after hours of uptime with many elevated

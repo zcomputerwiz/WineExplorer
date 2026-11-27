@@ -5219,3 +5219,27 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## X3: session 0 waits on and queries a session's processes (2026-11-27)
+
+Wine `claude/x3-process-waits` (on development), M3 of `docs/SESSION0_CROSS_SERVER.md` ("X3 as built"):
+
+- `server/session0_xproc.c` (new, LGPL): the process kind (`WEX_X_KIND_PROCESS`) a user's server serves to session 0
+  (open with `link_bound_token`'s token against the process's descriptor; `INFO` for the listed classes) and session
+  0's remote process object (its own "Process" type, a descriptor of exactly the granted rights, signaled at the
+  death notice or the owner's end), the asynchronous open and the request `x_process_result`.
+- `server/session0_x.c`, `session0_x.h`: `WEX_X_INFO` served through the kind's new `info` operation; a held
+  reference's `notify` callback (a `NOTICE`, and once when the owner's epoch ends); `x_peer_of_server`.
+- `server/session0.c`, `session0.h`: `session0_id_owner` (the live server whose id block holds an id);
+  `x_process_init` at start.
+- `include/wine/wex_session0.h`: `WEX_SESSION0_VERSION` 9, `WEX_X_INFO`, `WEX_X_KIND_PROCESS`, `struct
+  wex_x_info_req`, `struct wex_x_process_info`.
+- `server/protocol.def` (`x_process_result`; generated `server_protocol.h`, `request_handlers.h`, `request_trace.h`),
+  `server/Makefile.in`.
+- `server/process.c`: `open_process` starts the remote open in session 0 (`STATUS_PENDING`, the call in the handle);
+  `get_process_info` and `get_process_image_name` answer for a remote process; `get_process_from_handle` gives
+  `STATUS_NOT_SUPPORTED` for one; `process_killed` calls `x_process_ended` (the death notice).
+- `dlls/ntdll/unix/process.c` (`NtOpenProcess`): on `STATUS_PENDING`, waits on the call and takes the handle with
+  `x_process_result`.
+
+Test: suite section `s0_xproc` (`scripts/x3-process-probe.c`, 64-bit and 32-bit openers in session 0).
