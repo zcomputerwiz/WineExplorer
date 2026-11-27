@@ -1,5 +1,37 @@
 # Changes to stock Wine / third-party code
 
+Convention for experimental items: work that is complete and tested but has no consumer yet stays in the code, switched off.
+`WINE_EXPERIMENTAL` turns such items on. It is a list of feature names separated by commas or spaces, compared case-insensitively;
+`all` turns every item on, while `none` or an unset variable turns none on. The variable is read when the feature is used, so a
+process may set it before then. One helper parses it: `__wine_experimental_enabled(name)` in `include/wine/experimental.h`. Each
+experimental entry below names its feature.
+
+## coremessaging: Windows.System.DispatcherQueue, experimental, off unless `WINE_EXPERIMENTAL=dispatcherqueue` (UWP, Wine branch `claude/coremessaging-dq` d840cb8f, 2026-11-27)
+
+* `include/wine/experimental.h` (new, listed in `include/Makefile.in`): the shared `WINE_EXPERIMENTAL` parser described above.
+* `dlls/coremessaging/dispatcher.c` (new), `main.c`, `private.h`, `classes.idl`, `Makefile.in` (imports user32): a system
+  `Windows.System.DispatcherQueue` class (the statics) and a real queue for `DispatcherQueueController::get_DispatcherQueue`,
+  `CreateOnDedicatedThread` and `CreateDispatcherQueueController`.
+  * A queue belongs to one thread. It runs its work from that thread's message loop through a message-only window, high priority
+    first, and any thread can queue work. A dedicated-thread queue runs its own loop.
+  * `GetForCurrentThread` returns the calling thread's queue, or NULL with S_OK when the thread has none.
+  * Timers are Win32 timers on the queue's window.
+  * `ShutdownQueueAsync` raises ShutdownStarting, runs the queued work, completes, then raises ShutdownCompleted. A controller
+    released without a shutdown shuts its queue down. `GetDeferral` on the ShutdownStarting arguments is still a stub.
+* Off (the default): the controller is the earlier stub. `get_DispatcherQueue` and `CreateOnDedicatedThread` return E_NOTIMPL,
+  `ShutdownQueueAsync` completes at once, and the DispatcherQueue class isn't served (CLASS_E_CLASSNOTAVAILABLE).
+* Why: it is a complete, tested Windows API that used to fail with E_NOTIMPL. Notepad doesn't need it: InputHost only calls
+  `GetForCurrentThread`, which returns S_OK and NULL on Windows there. It is kept for upstream; the owner's rule (2026-11-26) is to keep
+  tested work in the code, switched off.
+* Blast radius with the flag off: none, because the behaviour is the earlier stub. Nothing in WineExplorer sets the flag.
+* Test: `dlls/coremessaging/tests/coremessaging.c`.
+  * The tests turn the flag on unless `WINE_EXPERIMENTAL` is already set. The upstream tests lose their todo_wine markers, and
+    `test_DispatcherQueue_Statics` is new: GetForCurrentThread, priority order, a one-shot timer, and a controller released without a
+    shutdown.
+  * `test_experimental_off` (Wine only) clears the variable and checks the stub answers.
+  * Results: 274 tests, 0 failures on Wine x86_64 and i386. With `WINE_EXPERIMENTAL=none`, the upstream tests fail with the stub
+    answers and nothing crashes. The Windows 11 host (x64 and x86) passed the 267 tests of 9464442f; the off test is skipped there.
+
 ## imm32: CtfImmTIMActivate, text services on window activation (UWP, Wine branch `claude/ctfimm-tim`, 2026-11-26)
 
 * `dlls/imm32/imm.c`, `imm32.spec`: `CtfImmTIMActivate(hkl, activate)` was a bare `@ stub` (a call aborted the process). It now
