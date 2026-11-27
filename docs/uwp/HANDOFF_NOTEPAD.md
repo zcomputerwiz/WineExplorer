@@ -827,3 +827,25 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
     ({0, id}), a subclass installed after Init2, and a drain inside a SendMessageCallback message.
   - CoreMessagingXP's own window (subclassed in cmxp-timer-probe) never gets a nested 0x60 during its drain, yet it ticks.
   - So the difference isn't the window, the context or the arguments. Not resolved.
+
+## 2026-11-27 (night): typing, Ctrl+N and Save As work; the dialog paints black
+
+Runs ns1-ns13 (no relay, build 19045 + per-app 23H2, lab u13 with the d2d1 Outline change): `nr.sh` through `ns.sh`, driver
+`np-drive.c` with `NP_SAVE`, `NP_SAVE_ENTER`, `NP_CTRL`, `NP_CLICK`.
+
+- With Outline working, the compositor thread faulted at once (NULL read, a "Program Error" dialog before any input, 2 of 2). On
+  Windows (wintrace, then `d2d-slot4-probe.cpp`) the private factory's slot 4 combines two geometries into a new path geometry
+  written through its 8th argument; the stub left it NULL. Fixed: Wine `claude/d2d-private-combine` e29883dc. No fault since
+  (ns3-ns13).
+- Typing works (the title becomes `*hello - Notepad`, a caret is drawn), Ctrl+N opens a new tab (`Untitled - Notepad`).
+- Ctrl+S: Notepad created Wine's FileSaveDialog and released it without a call. On Windows its first call is
+  `SetCollectedProperties` with a list from `PSGetPropertyDescriptionListFromString("prop:System.Security.EncryptionOwners")`;
+  then IFileDialogCustomize (an "Encoding:" group, a combo box with 5 items, item 5 selected), `SetFileName`, `SetTitle`,
+  `SetDefaultExtension`, `SetFileTypes(2)`, `SetOptions(0x884a)`, `Show`. Both propsys and comdlg32 returned `E_NOTIMPL`. Fixed:
+  Wine `claude/save-dialog-props` 5230a26c. Now "Save as" opens; Enter saves `Desktop\hello.txt` (5 bytes, "hello") and the title
+  becomes `hello.txt - Notepad` (ns7, ns8).
+- Open: the dialog is black on screen. Its X window is mapped, 24-bit, the same visual as Notepad's, nothing above it; the dialog
+  thread answers WM_NULL. `savedlg-probe.cpp` shows the same dialog painted from a plain program, also inside the running Notepad
+  session, and with per-monitor-v2 DPI awareness; it is black as soon as that program has made a Direct3D 11 device and a
+  swapchain (an HWND flip swapchain or a DirectComposition one). So GDI windows of a process that uses wined3d don't reach X in
+  this tree; a general bug, reported to Session 0 (not Notepad's or comdlg32's).
