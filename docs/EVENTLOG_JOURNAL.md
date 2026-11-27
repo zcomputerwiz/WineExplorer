@@ -30,9 +30,13 @@ go through the Event Log.
 - **Insertion strings (R5):** Service Control Manager 7000 has two (the service's display name, and the error's text,
   not a bare token) and 7034 two (the service, the number of times it failed), both per Microsoft's published event
   pages; 7031 has four (the service, the count, the delay in milliseconds, the corrective action), from a third-party
-  description only, so J1 confirms it from the lab VM's provider metadata (`wevtutil gp` on the service manager's
-  provider, a read) before the row is coded. Security 528, 529 and 538 are taken the same way (black box on the lab
-  VM) before J2.
+  description only, so J1 confirms it from the lab VM's provider metadata (`wevtutil gp` on the Service Control
+  Manager provider, a read; its ids are unchanged since XP) before the row is coded. **`wevtutil gp /gm` prints
+  Microsoft's message templates: only the number and order of the `%n` insertions are recorded, nothing of the
+  wording, in notes, commits or the repository.**
+- Security 528, 529 and 538 are not in Windows 10's metadata (its auditing provider uses 4624, 4625 and 4634), so J2
+  takes their insertion strings from Microsoft's archived, public Windows Server 2003 and XP security event
+  documentation. No Windows 10 Security id is relied on without asking the reviewer first.
 - systemd's message ids (`MESSAGE_ID`) come from systemd's own catalog (LGPL-2.1, the installed `journalctl
   --list-catalog`), checked against Debian 13's before code.
 
