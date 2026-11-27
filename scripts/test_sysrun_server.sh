@@ -5509,7 +5509,9 @@ STD_SID="$(sid_of "$STD")"; ADM_SID="$(sid_of "$ADM")"
 # system group in the user's own session
 mv "$M/drive_c/windows/system32/winedevice.exe" "$M/drive_c/windows/system32/winedevice.exe.hdorig"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/evh64.exe" "$M/drive_c/windows/system32/winedevice.exe"
-sysrole_of() { local u="$1"; shift; run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r'; }
+sysrole_of() { local u="$1"; shift; run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r' || true; }
+s0_wine sc start EventLog >/dev/null || true
+for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q RUNNING && break; sleep 0.5; done
 H_STD="$(sysrole_of "$STD" tokenview)"; H_STDC="$(sysrole_of "$STD" caller)"
 H_ADM="$(sysrole_of "$ADM" tokenview)"; H_ADMC="$(sysrole_of "$ADM" caller)"
 mv -f "$M/drive_c/windows/system32/winedevice.exe.hdorig" "$M/drive_c/windows/system32/winedevice.exe"
