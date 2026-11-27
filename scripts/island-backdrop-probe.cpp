@@ -33,7 +33,7 @@
 
 #include <windows.h>
 #include <dwmapi.h>
-#include <d3d11_1.h>
+#include <d3d11.h>
 #include <dxgi1_2.h>
 #include <dcomp.h>
 #include <stdlib.h>
@@ -56,12 +56,15 @@ static LRESULT CALLBACK main_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint( hwnd, &ps );
         HBRUSH editor = CreateSolidBrush( RGB(0xf9, 0xf9, 0xf9) );
+        /* ISLAND_RED_STRIPS=1 (diagnosis): red strips instead of black, so the islands' transparent pixels show */
+        HBRUSH strip = getenv( "ISLAND_RED_STRIPS" ) ? CreateSolidBrush( RGB(255, 0, 0) ) :
+                       (HBRUSH)GetStockObject( BLACK_BRUSH );
         RECT client, rect;
         GetClientRect( hwnd, &client );
         SetRect( &rect, 0, 0, client.right, TOP );
-        FillRect( hdc, &rect, (HBRUSH)GetStockObject( BLACK_BRUSH ) );
+        FillRect( hdc, &rect, strip );
         SetRect( &rect, 0, client.bottom - BOTTOM, client.right, client.bottom );
-        FillRect( hdc, &rect, (HBRUSH)GetStockObject( BLACK_BRUSH ) );
+        FillRect( hdc, &rect, strip );
         SetRect( &rect, 0, TOP, client.right, client.bottom - BOTTOM );
         FillRect( hdc, &rect, editor );
         DeleteObject( editor );
@@ -89,9 +92,11 @@ static void make_island( HWND parent, int x, int y, int cx, int cy )
     ID3D11RenderTargetView *view;
     IDCompositionTarget *target;
     IDCompositionVisual *visual;
-    const float clear[4] = { 0, 0, 0, 0 }, grey[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
-    D3D11_RECT square = { cx / 2 - cy / 2, 4, cx / 2 + cy / 2, cy - 4 };
-    ID3D11DeviceContext1 *context1;
+    const float clear[4] = { 0, 0, 0, 0 };
+    /* the square is written with UpdateSubresource (Wine's ClearView with rectangles is a stub) */
+    D3D11_BOX square = { (UINT)(cx / 2 - cy / 2), 4, 0, (UINT)(cx / 2 + cy / 2), (UINT)(cy - 4), 1 };
+    UINT square_w = square.right - square.left, square_h = square.bottom - square.top;
+    UINT *pixels = (UINT *)malloc( square_w * square_h * 4 );
 
     device->QueryInterface( __uuidof(IDXGIDevice), (void **)&dxgi );
     dxgi->GetAdapter( &adapter );
@@ -108,8 +113,9 @@ static void make_island( HWND parent, int x, int y, int cx, int cy )
     swapchain->GetBuffer( 0, __uuidof(ID3D11Texture2D), (void **)&buffer );
     device->CreateRenderTargetView( buffer, NULL, &view );
     context->ClearRenderTargetView( view, clear );
-    if (SUCCEEDED(context->QueryInterface( __uuidof(ID3D11DeviceContext1), (void **)&context1 )))
-        context1->ClearView( view, grey, &square, 1 );
+    for (UINT i = 0; i < square_w * square_h; i++) pixels[i] = 0xff404040;   /* opaque dark grey, BGRA */
+    context->UpdateSubresource( buffer, 0, &square, pixels, square_w * 4, 0 );
+    free( pixels );
     swapchain->Present( 0, 0 );
 
     dcomp->CreateTargetForHwnd( island, TRUE, &target );

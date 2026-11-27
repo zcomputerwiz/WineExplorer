@@ -5280,3 +5280,18 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## WinUI islands over their parent, and a flat backdrop in the extended frame (2026-11-27)
+
+Wine `claude/notepad-bars`, two commits on 864886e6. Windows Notepad (WinUI 3) showed a black tab strip and status bar:
+- `dlls/wined3d/swapchain.c` (`dcomp_background_for_window`, `dcomp_capture_background`): a child DirectComposition
+  target with `WS_EX_NOREDIRECTIONBITMAP` (a WinUI island) composes over its parent's GDI pixels under it, not over
+  zeros (before, every island was opaque black). Glass-sheet popup shapes come from the scene's alpha and are unchanged.
+- `dlls/dwmapi/dwmapi_main.c`, `dlls/win32u/dce.c`, `include/wine/dcomp_underlay.h`: a window with a system backdrop
+  (`DWMWA_SYSTEMBACKDROP_TYPE` 2/3/4 or `DWMWA_MICA_EFFECT`) and extended margins, where nothing composes alpha (no
+  DwmAlpha): dwmapi publishes the backdrop colour and the margins (`__wine_dwm_backdrop*` properties), and the window
+  surface flush turns GDI black inside the margins into that colour, as DWM shows the backdrop through GDI's zero alpha.
+  Flat without materials: the theme's face colour, 0x202020 in dark mode. With DwmAlpha the compositor draws it.
+Test: `scripts/wexbuild-root/island-backdrop.sh` (`scripts/island-backdrop-probe.cpp`: Notepad's sequence without
+WinUI), light and dark, 10/10 on Xvfb. Not run: the Wayland session (the flush is shared, so it applies there too), the
+`c4_dwm_popup`/`c4_dwm_menu` suite sections, Notepad itself.
