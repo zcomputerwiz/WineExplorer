@@ -207,11 +207,34 @@ binaries the host writes itself keep the SYSTEM host tied to the install it was 
 9. **The event** for each host started: written with the event log protocol (`wine/wex_eventlog.h`, the System log;
    `ReportEventW` is still a stub).
 10. **The folder** is protected by Unix permissions too (owned by the session 0 account, mode 0700): the elevated
-    client keeps the system group's raised file access, so an NT ACL alone would not keep it out. As built the host
-    sets only the NT ACL and relies on the session 0 account's ownership and umask for the Unix mode; whether the
-    elevated client's group access can write it is still to be checked on a run (not yet verified). The host removes it
-    when the install's script ends, successfully or not (the client's END, or its connection breaking); the service
-    removes a crashed host's folder when it starts.
+    client keeps the system group's raised file access, so an NT ACL alone would not keep it out. **As built (and
+    measured):** the host sets the NT ACL (SYSTEM, Administrators); in the machine root the server maps SYSTEM,
+    Administrators and the service accounts all to the system group's bits (B41, `sd_system_group_mode`), even a
+    SYSTEM-only ACL, so the folder is mode 2770: session 0's account and the system group, nothing for others. A
+    user's limited processes cannot reach it; elevated processes and the sessions' system roles have the group, as
+    for every machine-root file, so point 4's "no other uid" holds only against limited processes: an elevated
+    administrator (who can reach SYSTEM anyway, the boundary paragraph) could swap a binary between write and load.
+    An owner-only folder would need a server change (a SID or flag outside B41's mapping). `c7_msi` checks from Linux,
+    while an action holds, that every host folder belongs to session 0's account and the system group with no other
+    bits. The host
+    removes it when the install's script ends, successfully or not (the client's END, or its connection breaking); it
+    holds `host.lock` open in it, and the service, when it starts, removes the folders whose lock it can delete (a
+    crashed host's) and leaves the others (a live host under a restarted service). An async EXE's file stays until
+    then. If the connection breaks while a DLL action runs, the host ends and the action is ended with it.
+12. **When the action runs as the user instead** (the reviewer's and the orchestrator's conditions): only in a prefix
+    without session 0 (the service's pipe is not found, and neither is session 0's `svcctl` through the bridge). With
+    session 0, a missing pipe (the service stopped or crashed) fails the action and the install log says why; the
+    client does not start the service: a session's service manager starts a session-0-only service locally, in the
+    session's own server (measured: an elevated `sc start wexmsiserver` reported RUNNING while session 0's stayed
+    STOPPED), which is of no use and is a bug of its own, reported. A busy pipe is retried (`WaitNamedPipe`); every
+    other failure (no answer, a broken connection, a refusal by the gate, a host that ends during an action) fails
+    the action and the install rolls back. Tests: `c7_msi` ends the host while a DLL action holds, and stops the
+    service before an install: both installs return 1603 and no action runs as the user.
+13. **The service's limits** (the reviewer): any authenticated caller may connect (so that every refusal is logged:
+    the pipe's descriptor would refuse a limited administrator silently), so the request has a 5 s deadline (a
+    watchdog cancels the read), an account has at most 4 connections at a time, and an account's refusal events are
+    limited to 10 a minute. Test: a client that connects and sends nothing is dropped after the deadline.
+14. **Owed:** a test of a default-type administrator's install, when a fixture makes such a token.
 11. **An existing case changes:** `c7_msi` asserts `elevation=2` for its 3138 action (deferred, no impersonation);
     under B that action is SYSTEM in session 0, so the case moves to the new section's expectations. As built, the
     tests are in `c7_msi` itself: the EXE and 32- and 64-bit DLL actions as SYSTEM in session 0 with a deferred

@@ -4456,21 +4456,21 @@ echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
 echo hello > "$MS/hello.txt"; cp "$ROOT/probes/wexelevate_probe32.exe" "$MS/act.exe"
 cp "$ROOT/probes/msisys_probe32.dll" "$MS/act32.dll"; cp "$ROOT/probes/msisys_probe64.dll" "$MS/act64.dll"
-mkmsi()   # name all-users(1|0) folder-id
+mkmsi()   # name all-users(1|0) folder-id [guid-tag [wait-dir]]: SysDll64 holds in WAIT-DIR (msisys_probe.c)
 {
-    local name="$1" allusers="$2" dir="$3" prop=""
+    local name="$1" allusers="$2" dir="$3" tag="${4:-$2}" waitdir="${5:-}" prop=""
     [ "$allusers" = 1 ] && prop='<Property Id="ALLUSERS" Value="1"/>'
     cat > "$MS/$name.wxs" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" UpgradeCode="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a0$allusers" Name="WexCallers$name" Language="1033" Version="1.0.0" Manufacturer="WineExplorer test">
+  <Product Id="*" UpgradeCode="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a0$tag" Name="WexCallers$name" Language="1033" Version="1.0.0" Manufacturer="WineExplorer test">
     <Package Description="$name" InstallerVersion="200" Compressed="yes"/>
     <Media Id="1" Cabinet="a.cab" EmbedCab="yes"/>
     $prop
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="$dir">
         <Directory Id="INSTALLDIR" Name="WexCallers$name">
-          <Component Id="C1" Guid="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a1$allusers"><File Id="F1" Source="$MS/hello.txt"/></Component>
+          <Component Id="C1" Guid="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a1$tag"><File Id="F1" Source="$MS/hello.txt"/></Component>
         </Directory>
       </Directory>
     </Directory>
@@ -4487,10 +4487,12 @@ EOF
         -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('Act', 'NOT Installed', 4100)"
     # DLL actions, deferred: without impersonation (1 | 0x400 | 0x800), 32 and 64 bit, and one impersonated (1 | 0x400);
     # each writes its facts to the path in its CustomActionData (the property of its name)
-    local act type bin seq
+    local act type bin seq data
     while read -r act type bin seq; do
+        data="$(winpath $EL/out.$act)"
+        [ "$act" != SysDll64 ] || [ -z "$waitdir" ] || data="$data|$(winpath $waitdir)"
         msibuild "$MS/$name.msi" -q "INSERT INTO \`CustomAction\` (\`Action\`, \`Type\`, \`Source\`, \`Target\`) VALUES ('$act', $type, '$bin', 'Facts')" \
-            -q "INSERT INTO \`Property\` (\`Property\`, \`Value\`) VALUES ('$act', '$(winpath $EL/out.$act)')" \
+            -q "INSERT INTO \`Property\` (\`Property\`, \`Value\`) VALUES ('$act', '$data')" \
             -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('$act', 'NOT Installed', $seq)"
     done <<'ACTIONS'
 SysDll32 3073 Dll32 4101
@@ -4501,8 +4503,12 @@ ACTIONS
 }
 # TEMP of the machine root points into the setup user's profile, which a limited process cannot write: the probe sets its own
 run_as "$ADM" install -d "/home/$ADM/wextmp"
-mkmsi machine 1 ProgramFilesFolder
+# SysDll64 of "machine" holds while the test looks at the host's folder; that of "machinekill" while it ends the host
+MSW=/tmp/wexmsiwait; rm -rf "$MSW"; install -d -m 1777 "$MSW" "$MSW/kill"
+mkmsi machine 1 ProgramFilesFolder 1 "$MSW"
 mkmsi peruser 0 AppDataFolder
+mkmsi machinekill 1 ProgramFilesFolder 2 "$MSW/kill"
+mkmsi machinerestart 1 ProgramFilesFolder 3
 msi_case()   # name msi action(approve|none) expected-result
 {
     local name="$1" pkg="$2" action="$3" expect="$4" shown
@@ -4536,7 +4542,20 @@ msi_el_cmd()   # name user arguments-of-cmd.exe
 msi_s0 sc start EventLog >/dev/null || true
 msi_s0 sc start wexmsiserver >/dev/null || true
 msi_s0 sc query wexmsiserver | tr -d '\r' | grep -q RUNNING || { msi_s0 sc query wexmsiserver >&2 || true; fail "wexmsiserver does not run in session 0"; }
+# while SysDll64 holds, the hosts' folders as Linux sees them (the reviewer's condition: no other uid may swap a binary)
+( for i in $(seq 1 600); do [ -e "$MSW/waiting" ] && break; sleep 0.2; done
+  for d in "$M/drive_c/windows/Installer"/WexSys*; do [ -d "$d" ] && stat -c '%U %G %a %n' "$d"; done > "$MSW/stat"
+  touch "$MSW/go" ) & MSWP=$!
 msi_case c7_msi_per_machine_install_asks_once machine approve 0
+wait "$MSWP" || true
+[ -s "$MSW/stat" ] || fail "no host folder was there while a SYSTEM action ran"
+# session 0's account and the system group (which stands for SYSTEM and Administrators in the machine root, B41),
+# nothing for others: a user's limited processes cannot reach the binaries
+while read -r owner group mode path; do
+    [ "$owner" = "$S0U" ] && [ "$group" = "$GRP" ] && [ "${mode: -1}" = 0 ] ||
+        { cat "$MSW/stat" >&2; fail "a host folder is open to others: $owner $group $mode $path"; }
+done < "$MSW/stat"
+ok c7_msi_host_folder_is_session0s_and_the_system_groups_while_actions_run
 [ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "the per-machine MSI asked more than once"
 [ -f "$M/drive_c/Program Files (x86)/WexCallersmachine/hello.txt" ] || { find "$M/drive_c" -name hello.txt >&2; fail "the per-machine MSI did not install into Program Files"; }
 ok c7_msi_per_machine_install_one_consent
@@ -4595,6 +4614,31 @@ f="$EL/out.SysDll32"
 [ "$(el_fact "$f" done)" = 1 ] && [ "$(el_fact "$f" user)" != S-1-5-18 ] && [ "$(el_fact "$f" session)" != 0 ] ||
     { cat "$f" >&2; fail "a per-user install's action without impersonation did not run as the user"; }
 ok c7_msi_per_user_install_runs_actions_without_impersonation_as_the_user
+# the host ends while a SYSTEM action runs: the install fails and rolls back (1603); the action is not run as the user
+( for i in $(seq 1 600); do [ -e "$MSW/kill/waiting" ] && break; sleep 0.2; done
+  pkill -KILL -u "$S0U" -f -- '-WexSysHost' && touch "$MSW/kill/done" ) & MSWP=$!
+msi_case c7_msi_host_ended_mid_action machinekill approve 1603
+wait "$MSWP" || true
+[ -e "$MSW/kill/done" ] || fail "the SYSTEM action never held, or its host could not be ended"
+f="$EL/out.SysDll64"
+[ ! -e "$f" ] || [ "$(el_fact "$f" user)" = S-1-5-18 ] || { cat "$f" >&2; fail "the action of an ended host ran as the user"; }
+ok c7_msi_install_fails_when_the_host_ends_mid_action
+# a stopped service on a machine with session 0 is never bypassed: the install fails and rolls back (1603), and no
+# action runs as the user (a session cannot start session 0's service: its service manager starts a local copy)
+msi_s0 sc stop wexmsiserver >/dev/null || true
+for i in $(seq 1 40); do msi_s0 sc query wexmsiserver | tr -d '\r' | grep -q STOPPED && break; sleep 0.25; done
+msi_s0 sc query wexmsiserver | tr -d '\r' | grep -q STOPPED || fail "wexmsiserver did not stop"
+msi_case c7_msi_stopped_service machinerestart approve 1603
+for f in "$EL/out.SysDll32" "$EL/out.SysDll64" "$EL/out.msi.act"; do
+    [ ! -e "$f" ] || [ "$(el_fact "$f" user)" = S-1-5-18 ] || { cat "$f" >&2; fail "with the service stopped, an action ran as the user"; }
+done
+ok c7_msi_stopped_service_fails_the_install_instead_of_bypassing_it
+msi_s0 sc start wexmsiserver >/dev/null || true
+# a client that connects and says nothing is dropped after the service's deadline
+out="$(wine_as "$ADM" "$ROOT/probes/msisys_probe64.exe" silent 2>&1 | tr -d '\r' || true)"
+ms="$(sed -n 's/^silent=dropped:\([0-9]*\)$/\1/p' <<<"$out")"
+[ -n "$ms" ] && [ "$ms" -ge 3000 ] && [ "$ms" -le 20000 ] || { echo "$out" >&2; fail "a silent client was not dropped after the deadline"; }
+ok c7_msi_silent_client_is_dropped_after_the_deadline
 msi_case c7_msi_per_machine_cancel_is_user_exit machine cancel 1602
 ok c7_msi_per_machine_cancel_returns_error_install_userexit
 # a per-user install does not elevate and asks nothing. It does not complete either while elevation is enforced: opening the

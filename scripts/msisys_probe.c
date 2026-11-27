@@ -74,12 +74,23 @@ static void property( FILE *out, MSIHANDLE h, const char *name )
 /* exported undecorated (-Wl,--kill-at): msi asks for "Facts" */
 __declspec(dllexport) UINT WINAPI Facts( MSIHANDLE h )
 {
-    char path[MAX_PATH], module[MAX_PATH];
+    char path[MAX_PATH], module[MAX_PATH], flag[MAX_PATH], *wait;
     DWORD size = sizeof(path);
     MSIHANDLE db, rec;
     FILE *out;
+    int i;
 
     if (MsiGetPropertyA( h, "CustomActionData", path, &size ) || !path[0]) return ERROR_INSTALL_FAILURE;
+    /* "OUT|WAITDIR": hold while the test looks at the running host (its folder's mode) or ends it: WAITDIR\waiting
+     * says we run, WAITDIR\go lets us go on (120 s at most) */
+    if ((wait = strchr( path, '|' )))
+    {
+        *wait++ = 0;
+        snprintf( flag, sizeof(flag), "%s\\waiting", wait );
+        if ((out = fopen( flag, "w" ))) fclose( out );
+        snprintf( flag, sizeof(flag), "%s\\go", wait );
+        for (i = 0; i < 1200 && GetFileAttributesA( flag ) == INVALID_FILE_ATTRIBUTES; i++) Sleep( 100 );
+    }
     if (!(out = fopen( path, "w" ))) return ERROR_INSTALL_FAILURE;
     token_facts( out );
     GetModuleFileNameA( (HMODULE)&__ImageBase, module, sizeof(module) );  /* where the host wrote us */
@@ -160,10 +171,31 @@ static int gate( int arch, int flags )
     return 0;
 }
 
+/* a client that connects and sends nothing: the service must drop it after its deadline (silent=dropped:MS) */
+static int silent( void )
+{
+    DWORD start = GetTickCount(), got;
+    BYTE byte;
+    HANDLE pipe;
+
+    pipe = CreateFileW( WEX_MSISYS_PIPE, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+                        SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, NULL );
+    if (pipe == INVALID_HANDLE_VALUE)
+    {
+        printf( "silent=open-failed:%lu\n", GetLastError() );
+        return 1;
+    }
+    if (ReadFile( pipe, &byte, 1, &got, NULL )) printf( "silent=answered\n" );
+    else printf( "silent=dropped:%lu\nsilent_error=%lu\n", GetTickCount() - start, GetLastError() );
+    CloseHandle( pipe );
+    return 0;
+}
+
 int main( int argc, char **argv )
 {
     if (argc == 4 && !strcmp( argv[1], "gate" )) return gate( atoi( argv[2] ), atoi( argv[3] ) );
-    fprintf( stderr, "usage: msisys_probe gate ARCH FLAGS\n" );
+    if (argc == 2 && !strcmp( argv[1], "silent" )) return silent();
+    fprintf( stderr, "usage: msisys_probe gate ARCH FLAGS | silent\n" );
     return 2;
 }
 

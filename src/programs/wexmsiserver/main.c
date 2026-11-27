@@ -52,6 +52,9 @@
 #define SERVICE_NAME    L"wexmsiserver"
 #define EVENT_SOURCE    WEX_MSISYS_EVENT_SOURCE
 #define MAX_CONNECTIONS 64
+#define READ_DEADLINE_MS     5000   /* the request must arrive this soon: a silent client cannot hold a slot */
+#define MAX_PER_CALLER       4      /* connections of one account at a time */
+#define REFUSALS_PER_MINUTE  10     /* refusal events of one account: the System log cannot be flooded */
 
 static SERVICE_STATUS_HANDLE status_handle;
 static SERVICE_STATUS service_status = { SERVICE_WIN32_OWN_PROCESS, SERVICE_START_PENDING, 0, NO_ERROR, 0, 0, 0 };
@@ -178,7 +181,8 @@ static DWORD check_caller( HANDLE pipe )
     return wex_caller_class_of_pipe( pipe ) == WEX_CALLER_ELEVATED_ADMIN ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
 }
 
-/* a crashed host leaves its folder: none runs when the service starts, so every WexSys folder is a leftover */
+/* a crashed host leaves its folder; a live one (the service restarted under it) holds host.lock open in its own, so
+ * a folder whose lock cannot be deleted is in use and stays */
 static void remove_leftovers( void )
 {
     WCHAR dir[MAX_PATH], path[MAX_PATH], sub[MAX_PATH];
@@ -191,6 +195,8 @@ static void remove_leftovers( void )
     do
     {
         if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        swprintf( sub, ARRAY_SIZE(sub), L"%s\\Installer\\%s\\host.lock", dir, data.cFileName );
+        if (!DeleteFileW( sub ) && GetLastError() == ERROR_SHARING_VIOLATION) continue;  /* a live host's */
         swprintf( sub, ARRAY_SIZE(sub), L"%s\\Installer\\%s\\*", dir, data.cFileName );
         if ((files = FindFirstFileW( sub, &file )) != INVALID_HANDLE_VALUE)
         {
@@ -273,6 +279,105 @@ done:
     return err;
 }
 
+/* ------------------------------------------------------------------------------------------ limits per caller */
+
+struct caller_slot
+{
+    WCHAR sid[192];
+    LONG  active;           /* connections now */
+    DWORD window;           /* GetTickCount of the current minute's start */
+    DWORD refusals;         /* refusal events in it */
+};
+
+static struct caller_slot slots[MAX_CONNECTIONS];
+static CRITICAL_SECTION slots_lock;
+
+/* a connection of this account, or NULL when it has MAX_PER_CALLER already (or the table is full) */
+static struct caller_slot *slot_acquire( const WCHAR *sid )
+{
+    struct caller_slot *slot = NULL, *free_slot = NULL;
+    unsigned int i;
+
+    EnterCriticalSection( &slots_lock );
+    for (i = 0; i < ARRAY_SIZE(slots); i++)
+    {
+        if (slots[i].sid[0] && !wcscmp( slots[i].sid, sid )) { slot = &slots[i]; break; }
+        if (!free_slot && !slots[i].active && GetTickCount() - slots[i].window > 60000) free_slot = &slots[i];
+    }
+    if (!slot && (slot = free_slot))
+    {
+        lstrcpynW( slot->sid, sid, ARRAY_SIZE(slot->sid) );
+        slot->window = GetTickCount();
+        slot->refusals = 0;
+    }
+    if (slot && slot->active >= MAX_PER_CALLER) slot = NULL;
+    if (slot) slot->active++;
+    LeaveCriticalSection( &slots_lock );
+    return slot;
+}
+
+static void slot_release( struct caller_slot *slot )
+{
+    EnterCriticalSection( &slots_lock );
+    slot->active--;
+    LeaveCriticalSection( &slots_lock );
+}
+
+/* whether this account's refusal may be logged now */
+static BOOL slot_may_log_refusal( struct caller_slot *slot )
+{
+    BOOL ret;
+
+    EnterCriticalSection( &slots_lock );
+    if (GetTickCount() - slot->window > 60000)
+    {
+        slot->window = GetTickCount();
+        slot->refusals = 0;
+    }
+    ret = slot->refusals++ < REFUSALS_PER_MINUTE;
+    LeaveCriticalSection( &slots_lock );
+    return ret;
+}
+
+/* the request's deadline: a watchdog cancels the connection thread's read when it has not arrived in time */
+struct deadline
+{
+    HANDLE thread;          /* the connection thread */
+    HANDLE done;
+};
+
+static DWORD WINAPI deadline_thread( void *param )
+{
+    struct deadline *d = param;
+
+    if (WaitForSingleObject( d->done, READ_DEADLINE_MS ) == WAIT_TIMEOUT) CancelSynchronousIo( d->thread );
+    return 0;
+}
+
+static BOOL read_request( HANDLE pipe, struct wex_msisys_request *request )
+{
+    struct deadline d = { NULL, CreateEventW( NULL, TRUE, FALSE, NULL ) };
+    HANDLE watchdog = NULL;
+    BOOL ok;
+
+    if (d.done && DuplicateHandle( GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &d.thread, 0, FALSE,
+                                   DUPLICATE_SAME_ACCESS ))
+        watchdog = CreateThread( NULL, 0, deadline_thread, &d, 0, NULL );
+    if (!watchdog)
+    {
+        if (d.thread) CloseHandle( d.thread );
+        if (d.done) CloseHandle( d.done );
+        return FALSE;  /* no read without a deadline */
+    }
+    ok = read_full( pipe, request, sizeof(*request) );
+    SetEvent( d.done );
+    WaitForSingleObject( watchdog, INFINITE );
+    CloseHandle( watchdog );
+    CloseHandle( d.thread );
+    CloseHandle( d.done );
+    return ok;
+}
+
 /* ------------------------------------------------------------------------------------------ a connection */
 
 static DWORD WINAPI connection_thread( void *param )
@@ -283,15 +388,18 @@ static DWORD WINAPI connection_thread( void *param )
     WCHAR pid_string[16];
     const WCHAR *strings[5];
     const WCHAR *reason = NULL;
+    struct caller_slot *slot;
     UINT32 status;
     DWORD done, pid = 0;
 
-    if (!read_full( pipe, &request, sizeof(request) ) || request.magic != WEX_MSISYS_MAGIC ||
+    /* who asks, before anything is read: an account has a few connections at a time, and its request a deadline */
+    identify( pipe, &caller );
+    if (!(slot = slot_acquire( caller.sid_string[0] ? caller.sid_string : L"?" ))) goto end_noslot;
+    if (!read_request( pipe, &request ) || request.magic != WEX_MSISYS_MAGIC ||
             request.version != WEX_MSISYS_VERSION || (request.arch != 32 && request.arch != 64))
         goto end;
     request.product[ARRAY_SIZE(request.product) - 1] = 0;
     request.package[ARRAY_SIZE(request.package) - 1] = 0;
-    identify( pipe, &caller );
 
     /* the gate: an elevated administrator's per-machine install; every refusal is logged */
     if ((status = check_caller( pipe ))) reason = L"not an elevated administrator";
@@ -307,8 +415,9 @@ static DWORD WINAPI connection_thread( void *param )
     if (status)
     {
         strings[4] = reason;
-        write_event( EVENTLOG_WARNING_TYPE, WEX_MSISYS_EVENT_REFUSED, strings, 5,
-                     caller.sid_size ? caller.sid : NULL, caller.sid_size );
+        if (slot_may_log_refusal( slot ))
+            write_event( EVENTLOG_WARNING_TYPE, WEX_MSISYS_EVENT_REFUSED, strings, 5,
+                         caller.sid_size ? caller.sid : NULL, caller.sid_size );
         WriteFile( pipe, &status, sizeof(status), &done, NULL );
         goto end;
     }
@@ -324,11 +433,14 @@ static DWORD WINAPI connection_thread( void *param )
     swprintf( pid_string, ARRAY_SIZE(pid_string), L"%lu", pid );
     strings[4] = pid_string;
     write_event( EVENTLOG_INFORMATION_TYPE, WEX_MSISYS_EVENT_HOST, strings, 5, caller.sid, caller.sid_size );
+    slot_release( slot );
     CloseHandle( pipe );  /* not disconnected: the host has the connection */
     InterlockedDecrement( &connections );
     return 0;
 
 end:
+    slot_release( slot );
+end_noslot:
     DisconnectNamedPipe( pipe );
     CloseHandle( pipe );
     InterlockedDecrement( &connections );
@@ -428,6 +540,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
     static const SERVICE_TABLE_ENTRYW table[] = { { (WCHAR *)SERVICE_NAME, service_main }, { NULL, NULL } };
 
     InitializeCriticalSection( &start_lock );
+    InitializeCriticalSection( &slots_lock );
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     if (argc == 1 && StartServiceCtrlDispatcherW( table )) return 0;
     fprintf( stderr, "wexmsiserver: a service of the system, started by the service manager\n" );
