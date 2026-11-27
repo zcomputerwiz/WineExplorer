@@ -16,19 +16,21 @@
   x86_64 and i386: 1301 tests, 0 failures); `dlls/comdlg32/tests/itemdlg.c` lost its `todo_wine` (1318 tests, 0 failures, both).
   Measured with `tests/uwp/alpc/proplist-probe.c` (WineExplorer branch `claude/uwp-notepad-strips3`).
 
-## d2d1: private factory slot 4 combines two geometries (UWP, Wine branch `claude/d2d-private-combine` e29883dc on `claude/d2d-outline`, 2026-11-27)
+## d2d1: private factory slot 4 combines two geometries (UWP, Wine branch `claude/d2d-private-combine` a962e817 on `claude/d2d-outline`, 2026-11-27)
 
 * `dlls/d2d1/factory.c`: slot 4 of the private factory interface {6f72c0a2-6db7-46e9-9b62-b58a23f4928b} is
   `(mode, geometry1, transform1, geometry2, transform2, tolerance, &path)`: it combines the two geometries (the mode is a
-  `D2D1_COMBINE_MODE`, each matrix transforms its own geometry) into a new path geometry the caller owns. x86_64 only, like slot 15;
-  elsewhere it only logs.
+  `D2D1_COMBINE_MODE`, each matrix transforms its own geometry) into a new path geometry the caller owns. Built for every
+  architecture: 32-bit Windows 11 has the interface and the same slot 4 (same layout and results from a 32-bit probe). Wine still
+  offers the interface on x86_64 only, because slots 5, 6 and 15 are measured there only.
 * Why: once `Outline` works (the entry below), the Windows App SDK compositor calls slot 4 after slot 15 and reads the path it writes;
   the stub left it NULL and the compositor thread faulted on a NULL read (Notepad: a "Program Error" dialog before any input).
 * Measured on Windows 11: wintrace on Notepad (the arguments, the 8th an output; the 5th a path geometry, the 3rd a rectangle
   geometry), then calls from `tests/uwp/alpc/d2d-slot4-probe.cpp`: union/intersect/xor/exclude of a 10x10 square and a square
   shifted by 5 give areas 150/50/100/50, a path geometry with refcount 1; the transforms move their own geometry.
-* Test: `dlls/d2d1/tests/d2d1.c` `test_private_combine` (8 cases, 64-bit; skipped on 32-bit). Wine x86_64: 23642 tests, 0 failures
-  (parallel and `--single`).
+* Test: `dlls/d2d1/tests/d2d1.c` `test_private_combine` (8 cases; it runs wherever the factory answers the interface, so on Windows
+  of both architectures and Wine x86_64, and skips on Wine i386). Wine x86_64: 23642 tests, i386: 23380 tests, 0 failures. The same
+  cases pass on 64-bit and 32-bit Windows 11 through `d2d-slot4-probe.cpp` (the whole d2d1 test isn't run on the host).
 
 ## d2d1: Outline, GetWidenedBounds, the rounded rectangle's figure, ellipse/rounded rectangle bounds (UWP, Wine branch `claude/d2d-outline` 354384c8, 2026-11-27)
 
