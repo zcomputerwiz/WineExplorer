@@ -1,5 +1,35 @@
 # Changes to stock Wine / third-party code
 
+## propsys: PSGetPropertyDescriptionListFromString; comdlg32: SetCollectedProperties (UWP, Wine branch `claude/save-dialog-props` 5230a26c, 2026-11-27)
+
+* `dlls/propsys/propsys_main.c`: `PSGetPropertyDescriptionListFromString` (and the property system's method) returns an
+  `IPropertyDescriptionList`: a `prop:` prefix in any case (otherwise `E_FAIL`), names separated by `;` and not trimmed, `*` and `~`
+  before a name set `PDVF_SHOWONLYIFPRESENT` and `PDVF_HIDELABEL`, unknown names are left out with `INPLACE_S_TRUNCATED`, `GetAt` past
+  the end gives `TYPE_E_OUTOFBOUNDS`. `System.Security.EncryptionOwners` (`VT_VECTOR | VT_LPWSTR`) joins the property table, and
+  `IPropertyDescription::GetViewFlags` returns the flags (0 unless set by the list).
+* `dlls/comdlg32/itemdlg.c`: `IFileSaveDialog::SetCollectedProperties` returns `S_OK` for any list, NULL too, as on Windows; the
+  dialog shows no property fields, so the list is not kept.
+* Why: Notepad (Windows App SDK) asks for `prop:System.Security.EncryptionOwners` and passes the list to `SetCollectedProperties`
+  before it shows its Save As dialog; both returned `E_NOTIMPL`, so Ctrl+S released the dialog without showing it. Now Ctrl+S opens
+  the dialog and Enter saves the file (lab: `Desktop\hello.txt`, 5 bytes).
+* Tests: `dlls/propsys/tests/propsys.c` `test_PSGetPropertyDescriptionListFromString` (Windows 11: 1321 tests, 0 failures; Wine
+  x86_64 and i386: 1301 tests, 0 failures); `dlls/comdlg32/tests/itemdlg.c` lost its `todo_wine` (1318 tests, 0 failures, both).
+  Measured with `tests/uwp/alpc/proplist-probe.c` (WineExplorer branch `claude/uwp-notepad-strips3`).
+
+## d2d1: private factory slot 4 combines two geometries (UWP, Wine branch `claude/d2d-private-combine` e29883dc on `claude/d2d-outline`, 2026-11-27)
+
+* `dlls/d2d1/factory.c`: slot 4 of the private factory interface {6f72c0a2-6db7-46e9-9b62-b58a23f4928b} is
+  `(mode, geometry1, transform1, geometry2, transform2, tolerance, &path)`: it combines the two geometries (the mode is a
+  `D2D1_COMBINE_MODE`, each matrix transforms its own geometry) into a new path geometry the caller owns. x86_64 only, like slot 15;
+  elsewhere it only logs.
+* Why: once `Outline` works (the entry below), the Windows App SDK compositor calls slot 4 after slot 15 and reads the path it writes;
+  the stub left it NULL and the compositor thread faulted on a NULL read (Notepad: a "Program Error" dialog before any input).
+* Measured on Windows 11: wintrace on Notepad (the arguments, the 8th an output; the 5th a path geometry, the 3rd a rectangle
+  geometry), then calls from `tests/uwp/alpc/d2d-slot4-probe.cpp`: union/intersect/xor/exclude of a 10x10 square and a square
+  shifted by 5 give areas 150/50/100/50, a path geometry with refcount 1; the transforms move their own geometry.
+* Test: `dlls/d2d1/tests/d2d1.c` `test_private_combine` (8 cases, 64-bit; skipped on 32-bit). Wine x86_64: 23642 tests, 0 failures
+  (parallel and `--single`).
+
 ## d2d1: Outline, GetWidenedBounds, the rounded rectangle's figure, ellipse/rounded rectangle bounds (UWP, Wine branch `claude/d2d-outline` 354384c8, 2026-11-27)
 
 * `dlls/d2d1/geometry.c`:
