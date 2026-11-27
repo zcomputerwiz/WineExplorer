@@ -5348,9 +5348,10 @@ OUT2="$(sysrole_ev clear WexL1Sys)"
 OUT3="$(sysrole_ev report WexL1 4 11 sysrole-app)"
 OUT4="$(sysrole_ev caller)"
 for d in system32 syswow64; do mv -f "$M/drive_c/windows/$d/winedevice.exe.evorig" "$M/drive_c/windows/$d/winedevice.exe"; done
-# the caller class the server decides (H3): a session's SYSTEM token is a user (neither elevated administrator nor
-# the system); a standard user and a limited administrator are users; session 0's own SYSTEM process is the system
-[ "$(v class <<<"$OUT4")" = 1 ] || { echo "$OUT4" >&2; evfail "eventlog: a session's SYSTEM token is not of class user (H3)"; }
+# the caller class the server decides (H3): a session's SYSTEM token is a session's system role (4, since B132's
+# follow-up: neither elevated administrator nor the system, with a user's rights; the EventLog treats it as a user);
+# a standard user and a limited administrator are users; session 0's own SYSTEM process is the system
+[ "$(v class <<<"$OUT4")" = 4 ] || { echo "$OUT4" >&2; evfail "eventlog: a session's SYSTEM token is not of class session system role (H3)"; }
 [ "$(ev "$STD" caller | v class)" = 1 ] || evfail "eventlog: a standard user is not of class user (H3)"
 [ "$(ev "$ADM" caller | v class)" = 1 ] || evfail "eventlog: a limited administrator is not of class user (H3)"
 [ "$(evs caller | v class)" = 3 ] || evfail "eventlog: session 0's SYSTEM process is not system-local (H3)"
@@ -5545,7 +5546,7 @@ ok st_hardening_a_sessions_system_role_is_not_session0s_system
 ok st_hardening_the_system_roles_owner_groups_and_integrity_are_the_users
 # (d) an administrator's system role is the administrator's limited token (no UAC bypass)
 [ "$(v user <<<"$H_ADM")" = "$ADM_SID" ] && [ "$(v sy <<<"$H_ADM")" = denyonly ] && [ "$(v ba <<<"$H_ADM")" = denyonly ] &&
-    [ "$(v integrity <<<"$H_ADM")" = 2000 ] && [ "$(v syaccess <<<"$H_ADM")" = 0 ] && [ "$(v class <<<"$H_ADMC")" = 1 ] ||
+    [ "$(v integrity <<<"$H_ADM")" = 2000 ] && [ "$(v syaccess <<<"$H_ADM")" = 0 ] && [ "$(v class <<<"$H_ADMC")" = 4 ] ||
     fail "hardening: an administrator's system role is more than the limited token: $H_ADM"
 ok st_hardening_an_administrators_system_role_is_the_limited_token
 # the positive control: the administrator elevated through the broker keeps Administrators, High, elevated class
