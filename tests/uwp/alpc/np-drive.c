@@ -109,6 +109,44 @@ int main(int argc, char **argv)
             while (*p == ' ') p++;
         }
     }
+    if (getenv("NP_OPEN"))
+    {
+        /* NP_OPEN=path: Ctrl+O, then the path typed as Unicode characters into the dialog and Enter; Notepad's title after */
+        const char *path = getenv("NP_OPEN");
+        INPUT k[4] = {{0}};
+        char cls[96] = "", title[256] = "";
+        HWND fg;
+
+        k[0].type = INPUT_KEYBOARD; k[0].ki.wVk = VK_CONTROL;
+        k[1].type = INPUT_KEYBOARD; k[1].ki.wVk = 'O';
+        k[2] = k[1]; k[2].ki.dwFlags = KEYEVENTF_KEYUP;
+        k[3] = k[0]; k[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(4, k, sizeof(INPUT));
+        Sleep(6000);
+        fg = GetForegroundWindow();
+        if (fg) { GetClassNameA(fg, cls, sizeof(cls)); GetWindowTextA(fg, title, sizeof(title)); }
+        printf("after Ctrl+O: foreground %p class %s title \"%s\"\n", fg, cls, title);
+        if (!strcmp(cls, "#32770"))
+        {
+            for (; *path; path++)
+            {
+                INPUT u[2] = {{0}};
+                u[0].type = INPUT_KEYBOARD; u[0].ki.wScan = (unsigned char)*path; u[0].ki.dwFlags = KEYEVENTF_UNICODE;
+                u[1] = u[0]; u[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+                SendInput(2, u, sizeof(INPUT));
+                Sleep(60);
+            }
+            Sleep(500);
+            key(VK_RETURN);
+            Sleep(5000);
+            fg = GetForegroundWindow();
+            cls[0] = title[0] = 0;
+            if (fg) { GetClassNameA(fg, cls, sizeof(cls)); GetWindowTextA(fg, title, sizeof(title)); }
+            printf("after the path and Enter: foreground %p class %s title \"%s\"\n", fg, cls, title);
+        }
+        GetWindowTextA(found, title, sizeof(title));
+        printf("Notepad title now \"%s\"\n", title);
+    }
     if (getenv("NP_SAVE"))
     {
         /* Ctrl+S, then report the window in front (a save dialog?) and the top-level windows of the Notepad process */
