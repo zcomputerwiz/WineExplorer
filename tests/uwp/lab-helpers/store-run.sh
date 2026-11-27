@@ -32,7 +32,7 @@ full=$(tr -d '\r' < install.log | sed -n 's/^Installed //p')
 family=$(tr -d '\r' < install.log | sed -n 's/^Application: \(.*\)!App$/\1/p')
 if [ -n "$full" ]; then
   export WINEDEBUG="${1:-err+all,fixme-all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
-  ( sleep 20; xwd -root -silent -display "$DISPLAY" | convert xwd:- store-20s.png; sleep 25; xwd -root -silent -display "$DISPLAY" | convert xwd:- store-45s.png ) &
+  ( sleep 20; import -display "$DISPLAY" -window root store-20s.png; sleep 25; import -display "$DISPLAY" -window root store-45s.png ) &
   # launched as from the Start menu: no arguments (the Calculator reads non-empty arguments as a mode number)
   timeout --kill-after=10s 60s "$build/wine" $c/applaunch.exe "$family!App" > launch.log 2>&1
   echo "launcher exit $?" >> summary

@@ -48,7 +48,7 @@ for f in signed unsigned bad-block other-publisher; do
 done
 
 shot() {   # shot NAME: the root window
-  xwd -root -silent -display :99 | convert xwd:- "$shots/$1.png" 2>/dev/null
+  import -display :99 -window root "$shots/$1.png" 2>/dev/null
 }
 echo "=== window, certificate not trusted"
 "$build/wine" "$sys/wexappinstall.exe" "Z:$run/fix/signed.appx" > /dev/null 2>&1 &

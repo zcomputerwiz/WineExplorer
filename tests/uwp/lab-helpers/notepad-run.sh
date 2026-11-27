@@ -23,7 +23,7 @@ done
 [ -n "$RELAY_FROM" ] && $b/wine reg add 'HKCU\Software\Wine\Debug' /v RelayFromInclude /t REG_SZ /d "$RELAY_FROM" /f > /dev/null 2>&1
 $b/server/wineserver -w
 export WINEDEBUG=${2:-err+all,fixme+all,+loaddll}
-( sleep 25; xwd -root -silent -display "$DISPLAY" | convert xwd:- ovr.png ) &
+( sleep 25; import -display "$DISPLAY" -window root ovr.png ) &
 timeout --kill-after=10s 60s $b/wine $g/claude/applaunch.exe 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App' > ovr.log 2>&1
 $b/server/wineserver -k
 echo "fonts mapped to $t; lines $(wc -l < ovr.log)"
