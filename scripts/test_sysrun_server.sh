@@ -5861,6 +5861,26 @@ OUT="$(tr -d '\r' < "$X3D/gone.out")"
     { echo "$OUT" >&2; fail "X3: the wait did not end with the session's server"; }
 kill_servers
 ok st_session0_wait_ends_when_the_sessions_server_does
+# the review's deadline: a stopped user's server cannot hold session 0's opener; the open fails as an unknown id
+# (87) within the deadline (5 s), and the owner's late answer is released (session 0's log says so); afterwards an
+# open works again
+TP="$(x3_sleeper z 60 0)"
+pkill -STOP -u "$STD" -x wineserver
+T0=$(date +%s)
+OUT="$(s0_wine "$ROOT/probes/x3probe64.exe" open "$TP" 101000 0 | tr -d '\r')"
+T1=$(date +%s)
+pkill -CONT -u "$STD" -x wineserver
+[ "$(val open "$OUT")" = "error 87" ] && [ $((T1 - T0)) -le 12 ] ||
+    { echo "$OUT ($((T1 - T0)) s)" >&2; fail "X3: the open of a stopped server's process did not end at its deadline"; }
+for i in $(seq 1 20); do grep -qi "x3: a late answer for process 0*$(printf '%x' "$TP"):" "$ROOT/session0.log" && break; sleep 0.5; done
+grep -qi "x3: a late answer for process 0*$(printf '%x' "$TP"):" "$ROOT/session0.log" ||
+    { grep 'x3:' "$ROOT/session0.log" | tail -5 >&2; fail "X3: the late answer's reference was not released"; }
+OUT="$(s0_wine "$ROOT/probes/x3probe64.exe" open "$TP" 101000 0 | tr -d '\r')"
+[ "$(val open "$OUT")" = ok ] && [ "$(val wait "$OUT")" = 258 ] ||
+    { echo "$OUT" >&2; fail "X3: an open after the server went on"; }
+kill_servers
+wait
+ok st_session0_open_of_a_stopped_servers_process_ends_at_its_deadline
 # a session still cannot open session 0's processes (M3: callers in session 0 only)
 rm -f "$X3D/s0.pid"
 s0_wine "$ROOT/probes/x3probe64.exe" sleeper "$(winpath "$X3D/s0.pid")" 15 0 >/dev/null &

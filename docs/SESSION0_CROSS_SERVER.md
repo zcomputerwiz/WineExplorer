@@ -233,7 +233,14 @@ consumed** (`server/thread.c`). So:
   `ProcessImageFileName(Win32)` and `GetPriorityClass` work without a round trip per query. Limit: a priority class
   changed after the open is not seen (taken again at the death notice only). User and kernel times are 0, as Wine
   gives them for any process but the caller's own.
-- Every other request on the remote handle (`get_process_from_handle`) is `STATUS_NOT_SUPPORTED`.
+- **The owner is a user's server, of that user's account.** Session 0 does not take from it what it already knows:
+  a reply whose pid is not the one asked for is refused, and the session is the link's. The image name, exit code,
+  parent id and times stay the owner's claims: session 0 code must not base a security decision on them beyond what
+  that user could claim anyway.
+- **A deadline (the review):** the open ends after 5 s without an answer (a stopped or busy user's server) with
+  `STATUS_INVALID_CID`, as before X3; a late answer releases the owner's entry and frees the held one at once.
+- Every other request on the remote handle (`get_process_from_handle`) is `STATUS_NOT_SUPPORTED`, with a FIXME once
+  per request in session 0's log (so a lab run shows what a program asks for).
 - The remote object has its own type (named "Process", the process type's mapping), so SeDebugPrivilege's rule for
   processes does not apply to it, and a descriptor that allows exactly the granted rights: `DuplicateHandle` asking
   for more is `STATUS_ACCESS_DENIED`, for less is narrowed by session 0 as for any handle.
