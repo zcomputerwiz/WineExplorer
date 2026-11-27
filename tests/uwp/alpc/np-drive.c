@@ -134,6 +134,22 @@ int main(int argc, char **argv)
             answered = fg ? SendMessageTimeoutA(fg, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1000, &res) : 0;
             printf("after Ctrl+S +%d s: foreground %p class %s title \"%s\", answers WM_NULL: %s\n", (i + 1) * 2, fg, cls, title,
                    answered ? "yes" : "no");
+            if (i == 1 && !strcmp(cls, "#32770"))
+            {
+                /* the dialog's styles, and a pixel of its title bar and of its client area as its own window DC and the screen
+                 * hold them: painted but not shown, or never painted? */
+                RECT wr;
+                HDC wdc = GetWindowDC(fg), sdc = GetDC(NULL);
+
+                GetWindowRect(fg, &wr);
+                printf("  dialog style %#lx exstyle %#lx rect %ld,%ld-%ld,%ld owner %p\n", GetWindowLongA(fg, GWL_STYLE),
+                       GetWindowLongA(fg, GWL_EXSTYLE), wr.left, wr.top, wr.right, wr.bottom, GetWindow(fg, GW_OWNER));
+                printf("  window DC pixels: title %#lx, client %#lx; screen pixels: title %#lx, client %#lx\n",
+                       GetPixel(wdc, 40, 12), GetPixel(wdc, 300, 300), GetPixel(sdc, wr.left + 40, wr.top + 12),
+                       GetPixel(sdc, wr.left + 300, wr.top + 300));
+                ReleaseDC(fg, wdc);
+                ReleaseDC(NULL, sdc);
+            }
             if (i == 3 && getenv("NP_SAVE_ENTER") && !strcmp(cls, "#32770"))
             {
                 /* accept the dialog with Enter (the default button, Save) */
