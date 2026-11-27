@@ -10,8 +10,11 @@
   returns the calling thread's queue (NULL with S_OK when it has none). Timers use Win32 timers on the queue's window.
   `ShutdownQueueAsync` raises ShutdownStarting, runs the queued work, completes, then raises ShutdownCompleted. A controller released
   without a shutdown shuts its queue down. `GetDeferral` on the ShutdownStarting arguments is still a stub.
-* Why: on Windows 11, Windows' InputHost activates `Windows.System.DispatcherQueue` (the statics, `GetForCurrentThread`) on Notepad's
-  input thread right after it creates each input site; Wine's inputhost module (InputSite work) will use it the same way.
+* Why: on Windows 11, Windows' InputHost activates `Windows.System.DispatcherQueue` (the statics) on Notepad's input thread while it
+  creates each input site's configuration object. The InputSite work then measured the calls: `GetForCurrentThread` returns S_OK and
+  NULL there, and nothing in the process calls `CreateDispatcherQueueController`. So Notepad doesn't need a working queue. The class
+  stays because it's a complete, tested Windows API that used to fail with E_NOTIMPL, and NULL with S_OK is what this implementation
+  returns on a thread without a queue.
 * Blast radius: programs that use a system DispatcherQueue used to get E_NOTIMPL; nothing in WineExplorer's shell or scripts calls it.
 * Test: `dlls/coremessaging/tests/coremessaging.c`: the upstream tests lose their todo_wine markers; new `test_DispatcherQueue_Statics`
   (GetForCurrentThread, priority order, a one-shot timer, a controller released without a shutdown). 267 tests, 0 failures on Wine
