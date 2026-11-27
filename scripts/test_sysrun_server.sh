@@ -702,6 +702,14 @@ prefix_server_env() { run_as "$1" env WINEPREFIX="/home/$1/.wine" "$BUILD/server
 
 hold_start() { probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!; sleep 4; }   # a client keeps the server alive
 hold_stop() { prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w; wait "$HOLD" 2>/dev/null || true; }
+# A fresh session of the standard user whose system role services report: an earlier section's server must be gone
+# first, else the hold joins it, its services (already running) do not report again and wait_files times out
+svc_session_start() {
+    prefix_server_env "$STD" -k 2>/dev/null || true; prefix_server_env "$STD" -w 2>/dev/null || true
+    rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
+    hold_start
+    wait_files "$SVCDIR/sys.txt" "$SVCDIR/ls.txt" "$SVCDIR/ns.txt"
+}
 
 expect_pass()   # name user arch mode
 {
@@ -1372,10 +1380,7 @@ done
 # docs/SERVICES_SNAPIN.md; each gap is a bug of the service manager.
 if section svc_table; then set +e; ( section_enter
     echo "--- service manager survey (svc_table)"
-    rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
-    probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!
-    sleep 4
-    wait_files "$SVCDIR/sys.txt" "$SVCDIR/ls.txt" "$SVCDIR/ns.txt"
+    svc_session_start
     standin_on
     for who in "$STD" "$ADM"; do
         for arch in 64 32; do
@@ -1393,7 +1398,7 @@ if section svc_table; then set +e; ( section_enter
     OUT="$(sys_probe "$STD" 64 svc-table WexSvcMine create)"; echo "$OUT" > "/var/tmp/wex-run/svc-table-system-64-created.txt"
     grep -q '^row|WexSvcMine|open_scm|' <<<"$OUT" || { echo "$OUT" >&2; fail "svc-table create probe did not run as the system role"; }
     standin_off
-    kill "$HOLD" 2>/dev/null
+    hold_stop
     ok svc_table_survey_recorded
 true; ); section_leave $?; fi
 
@@ -1627,10 +1632,7 @@ true; ); section_leave $?; fi
 # does not (a gap of the service manager to report); the rows are kept in /var/tmp/wex-run/svc-table-elevated-*.txt.
 if section svc_table_elev; then set +e; ( section_enter
     echo "--- service manager survey as an elevated administrator (svc_table_elev)"
-    rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
-    probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!
-    sleep 4
-    wait_files "$SVCDIR/sys.txt" "$SVCDIR/ls.txt" "$SVCDIR/ns.txt"
+    svc_session_start
     el_clean; touch "$EL/approve.all"
     run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"
     run_as "$ADM" cp "$ROOT/probes/rolesprobe64.exe" "/home/$ADM/wexel/rolesprobe.exe"
@@ -1651,7 +1653,7 @@ if section svc_table_elev; then set +e; ( section_enter
         [ "$mode" != create ] || [ "$(row delete_service)" = 0 ] || fail "elevated administrator: delete_service returned '$(row delete_service)'"
         ok "svc_table_elevated_administrator_$svcname"
     done
-    kill "$HOLD" 2>/dev/null
+    hold_stop
 true; ); section_leave $?; fi
 
 if section c4_unix; then set +e; ( section_enter

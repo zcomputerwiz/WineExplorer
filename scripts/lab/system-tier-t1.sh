@@ -64,6 +64,23 @@ prefix_server_pid() {
 }
 # waits up to 5 s for a prefix's server to end
 server_gone() { local i; for i in $(seq 1 50); do prefix_server_pid "$1" > /dev/null || return 0; sleep 0.1; done; return 1; }
+# ends every process still running in this run's prefixes ($W/*, the other uid's prefix included). A server's end does
+# not end all its clients: session 0's services.exe was left behind by each run, as root with a deleted prefix
+# (14 of them on one machine, 2026-11-27). Runs at the end and on any exit.
+end_prefix_procs() {
+    local p left=""
+    for p in /proc/[0-9]*; do
+        p=${p#/proc/}
+        [ "$p" = "$$" ] && continue
+        tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "^WINEPREFIX=$W/" && left="$left $p"
+    done
+    [ -n "$left" ] || return 0
+    echo "ending processes left in the prefixes:$left"
+    kill $left 2>/dev/null; sleep 2
+    for p in $left; do kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; done
+    return 0
+}
+trap end_prefix_procs EXIT
 # stops session 0 as systemd does (wex-session0.service): SIGTERM saves the hives at once and ends the server. Not
 # wineserver -k: its SIGINT shuts the server down first and saves at the end, and after about 10 s -k sends SIGKILL,
 # which under load (chain VMs on the machine) came before the save (b1126a: s0_saved_key_dacl, dacl_survives_restart)
@@ -370,6 +387,8 @@ check other_uid_refused "$?" 1
 U ./server/wineserver -k; sleep 1
 
 WINEPREFIX=$W/s0 ./server/wineserver -k; sleep 1
+end_prefix_procs
+check no_process_left_in_the_prefixes "$(end_prefix_procs | grep -c .)" 0
 userdel $OTHER 2>/dev/null
 grep -a -i 'error\|fatal' "$W/s0.log" | head -5
 rm -rf "$W" "$SOCK"
