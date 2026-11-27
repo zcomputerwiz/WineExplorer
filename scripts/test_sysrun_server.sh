@@ -4964,6 +4964,15 @@ OUT="$(x0 "$SP" open x0b level=imp)"
 x0 "$SP" release "$(fld id <<<"$OUT")" >/dev/null
 grep -aq "x0: OPEN refused for uid $STD_UID, session $SESS" "$ROOT/session0.log" || fail "X0: the refused description is not logged"
 ok x0_other_session_and_identification_level_refused
+# the link-bound token hardening (B132), test (e): a description that claims SYSTEM as an enabled group (a user's
+# server gone wrong; no honest server sends it) comes to session 0 with SYSTEM deny-only, never granting
+OUT="$(x0 "$SP" open hsy claim=sy)"; IDH="$(fld id <<<"$OUT")"
+[ "$(fld st <<<"$OUT")" = 0:1 ] || fail "hardening: the lab open claiming a SYSTEM group: $OUT"
+OUT="$(x0 "$S0" reftoken)"
+[ "$(fld sy <<<"$OUT")" = 0 ] && [ "$(fld denied <<<"$OUT")" = 1 ] ||
+    fail "hardening: a claimed SYSTEM group grants in session 0: $OUT"
+x0 "$SP" release "$IDH" >/dev/null
+ok x0_hardening_a_claimed_system_group_is_deny_only
 # condition 4 in X0's terms: a user's server as owner serves callers in session 0 only
 OUT="$(x0 "$S0" open x0c peer="$SESS")"
 [ "$(fld st <<<"$OUT")" = 0:1 ] || fail "X0: session 0 cannot open on the user's server: $OUT"

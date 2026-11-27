@@ -5297,3 +5297,7 @@ Wine `claude/link-bound-hardening` (on development), `docs/SESSION0_CROSS_SERVER
   while the EventLog key has `WexTestOps` = 1.
 
 Test: suite section `s0_hardening` (fails before the change: the system role was SYSTEM in session 0).
+- (review) `token_apply_link_policy` keeps of the other NT-authority SIDs only the computed logon groups (a role SID
+  claimed as a group is deny-only) and resets a primary group of SYSTEM or Administrators to the account's 513;
+  `server/wex_x0lab.c` (lab only): `open ... claim=sy` and `reftoken`, with `token_lab_add_group` (token.c, under
+  `WEX_X0_LAB_TEST`) and `x_lab_last_ref_token` (session0_x.c). Lab test in `s0_x0`.

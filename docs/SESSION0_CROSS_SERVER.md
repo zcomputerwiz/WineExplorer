@@ -440,12 +440,20 @@ Now, in session 0 (`session0.c`, `link_policy`, called by `link_bound_token`; no
     group, Domain Admins), so Backup Operators and the others cannot be verified yet (a documented limitation);
   - domain groups kept only when verified (a domain record's recorded groups, or 513 of the account's own domain, its
     primary group), never Domain, Schema or Enterprise Admins;
-  - a mapped token's SERVICE and per-service (S-1-5-80-*) groups deny-only;
+  - every other NT-authority SID kept only when it is a computed logon group (2 NETWORK, 3 BATCH, 4 INTERACTIVE,
+    7 ANONYMOUS, 11 Authenticated Users, 13 and 14, 15 This Organization, 5-x-y the logon SID, 64-x the
+    authentication package, 113 and 114 the local account groups), else deny-only: SYSTEM, LocalService and
+    NetworkService claimed as groups, SERVICE, NT SERVICE\x, Enterprise Domain Controllers and anything not listed
+    (the review: a role SID claimed as a group would pass its ACEs as the user SID did);
   - privileges: a standard user's (SeChangeNotify, SeShutdown, SeUndock, SeIncreaseWorkingSet, SeTimeZone; a TODO
     reads LSA's rights assignment for verified groups);
   - integrity at most Medium; elevation Limited for an administrator's mapped token, else Default;
-  - the owner reset to the user when it is no longer an enabled group (BA, or SY after the mapping); the default
-    DACL as described.
+  - the owner reset to the user when it is no longer an enabled group (BA, or SY after the mapping), and a primary
+    group of SYSTEM or Administrators reset to the account's 513 (the user's own domain or machine); the default DACL
+    as described.
+- Tests: `s0_hardening` (normal suite: the system role through the bridged event log pipe, before and after) and,
+  in the lab suite's `s0_x0`, a description that claims SYSTEM as an enabled group (the lab's `open claim=sy`, a
+  user's server gone wrong) comes to session 0 deny-only (`reftoken`).
 - Session 0 logs each uid once per kind (its system role mapped; its description limited).
 - **Not in this change:** the registry channel (`start_registry_client`, `create_bound_token`) still gives a session's
   system role session 0's HKLM as described. The same hole, worse; tracked as its own bug (a decision of the owner's,
