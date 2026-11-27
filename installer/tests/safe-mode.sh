@@ -117,6 +117,10 @@
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
 #                named, or in the chain's default stages. With composition on the Start menu and the context menu must have
 #                their shadow (popup-check.py strict); the tooltip's missing shadow stays a note (it sits at the taskbar's edge).
+#                A fourth subresult, combo-dropdown, drops the Run dialog's list (one command is run first so the history
+#                has an entry): the list window exists hidden from the combo's creation, so the popup is a window that
+#                became viewable. The dialog is clicked into its edit, then F4, Alt+Down and the arrow button are tried
+#                in turn, each with its window list in $OUT/popups-combo-*.txt (batch 1139: F4 alone opened nothing).
 #   shellrestart  the shell comes back after its explorer is killed (kill -9): the session's supervisor (wex_run_shell,
 #                Winlogon's AutoRestartShell) starts it again, the new explorer takes over the desktop, and its taskbar is
 #                there again; the desktop's context menu then has no black box around it and, with composition on, its
@@ -2397,6 +2401,59 @@ phase_shellrestart() {   # see the header
     subresults_end
 }
 
+# The Run dialog's drop-down list. Its list window (ComboLBox, a popup of class explorer.exe, no name) is created with the
+# combo and is hidden (viewable=0) until it drops, so "new" for popup-check.py means hidden before and viewable after.
+# Batch 1139: F4 sent to the dialog opened nothing on any image (the list stayed hidden, 278x132). Now the dialog is
+# clicked into its edit first (a click is what a user does, and it puts the keyboard focus there), the command's console
+# is waited out, and each way of dropping the list is tried in turn and logged: F4, Alt+Down, the arrow button.
+popup_viewable() {   # popup_viewable FILE: how many viewable windows of the probe's list
+    grep -c 'viewable=1' "$1"
+}
+popup_combo_try() {   # popup_combo_try LABEL: the list after a way of dropping it; 0 when a window became viewable
+    local label=$1
+    sleep 1
+    popup_windows > "$OUT/popups-combo-$label.txt"
+    echo "  combo: after $label: $(popup_viewable "$OUT/popups-combo-$label.txt") viewable windows (before: $COMBO_BEFORE_COUNT)"
+    grep -E 'size=[0-9]+x[0-9]+ at=[-0-9]+,[-0-9]+ class=explorer[^ ]* name=$' "$OUT/popups-combo-$label.txt" | sed 's/^/    unnamed: /'
+    [ "$(popup_viewable "$OUT/popups-combo-$label.txt")" -gt "$COMBO_BEFORE_COUNT" ]
+}
+popup_combo_open() {   # the dialog is open with a history entry; drop the list by F4, then Alt+Down, then the arrow
+    local line x y
+    popup_windows > "$OUT/popups-combo-start.txt"
+    COMBO_BEFORE_COUNT=$(popup_viewable "$OUT/popups-combo-start.txt")
+    line=$(grep -m1 -E 'viewable=1 .* name=Run$' "$OUT/popups-combo-start.txt")
+    x=$(echo "$line" | sed -n 's/.* at=\(-\{0,1\}[0-9]*\),\(-\{0,1\}[0-9]*\) .*/\1/p')
+    y=$(echo "$line" | sed -n 's/.* at=\(-\{0,1\}[0-9]*\),\(-\{0,1\}[0-9]*\) .*/\2/p')
+    [ -n "$x" ] && [ -n "$y" ] || { echo "  combo: the Run dialog is not in the window list"; return 1; }
+    echo "  combo: Run at $x,$y; the combo's list before: $(grep -E 'size=[0-9]+x[0-9]+ at=[-0-9]+,[-0-9]+ class=explorer[^ ]* name=$' "$OUT/popups-combo-start.txt" | tr '\n' ';')"
+    "${V[@]}" click "$TEST" $((x + 150)) $((y + 99)) >/dev/null   # into the edit: the keyboard focus is in the combo
+    sleep 1
+    shot combo-before-key
+    "${V[@]}" key "$TEST" f4 >/dev/null
+    popup_combo_try f4 && return 0
+    "${V[@]}" key "$TEST" alt-down >/dev/null
+    popup_combo_try altdown && return 0
+    "${V[@]}" click "$TEST" $((x + 338)) $((y + 99)) >/dev/null   # the arrow button at the combo's right end
+    popup_combo_try arrow && return 0
+    echo "  combo: no way of dropping the list worked (the lists are in $OUT/popups-combo-*.txt)"
+    return 0   # popup-check.py reports "no new viewable window" with the same lists: one failure, with the evidence above
+}
+popup_combo() {   # the Run dialog is opened (Win+R), one command is run so the history has an entry, and it is opened again
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_window '^Run$' 20 "Type the name" || fail "combo: Win+R did not open Run"
+    "${V[@]}" type "$TEST" 'cmd /c exit'
+    "${V[@]}" key "$TEST" ret >/dev/null
+    window_gone '^Run$' 20
+    sleep 3   # the command's console (conhost) has gone and Explorer has the foreground back
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_window '^Run$' 20 "Type the name" || fail "combo: Win+R did not open Run the second time"
+    sleep 1
+    popup_one combo-dropdown popup_combo_open esc
+    local rc=$?
+    close_window esc '^Run$'
+    return $rc
+}
+
 phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
     start_vm
     desktop 600
@@ -2409,6 +2466,7 @@ phase_popups() {   # see the header: the shell's popups have no black box, and a
     subresult start-menu popup_one start-menu popup_start_menu esc strict
     subresult context-menu popup_one context-menu popup_context_menu esc strict
     subresult tooltip popup_one tooltip popup_tooltip esc
+    subresult combo-dropdown popup_combo
     shutdown_vm
     subresults_end
 }
