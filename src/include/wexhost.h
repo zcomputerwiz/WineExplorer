@@ -335,6 +335,11 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 #define WEX_WM_EFFECT_DARK       0x2
 #define WEX_WM_EFFECT_TINT       0x4
 #define WEX_WM_EFFECT_REGION     0x8
+#define WEX_WM_EFFECT_CLASS_SHADOW 0x10
+/* WEX_WINDOW_EFFECT.shadow: a frame shadow (any nonzero value before: TRUE) or the shadow of a CS_DROPSHADOW class,
+ * XP's look; the struct's layout is fixed (static asserts), so the style is the value, not a field */
+#define WEX_SHADOW_FRAME 1
+#define WEX_SHADOW_CLASS 2
 /* Neutral DWM policy in Wine pixels, client coordinates and ABGR. The explicit
  * square sentinel is retained; materials FALSE skips X11 backdrop writes but
  * still clears the Wayland backdrop. This does not enable composition. */
@@ -346,7 +351,7 @@ typedef struct
 {
     DWORD kind, tint, radius, default_radius;
     RECT region;
-    BOOL tinted, has_region, dark, shadow, materials;
+    BOOL tinted, has_region, dark, shadow, materials;   /* shadow: 0, WEX_SHADOW_FRAME or WEX_SHADOW_CLASS */
 } WEX_WINDOW_EFFECT;
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
@@ -355,6 +360,7 @@ typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
 typedef struct { DWORD backend; UINT64 window; char handle[33]; DWORD scale; } WEX_WM_IDENTITY;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
 DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity );
+DWORD WINAPI WexWmSetClassShadow( HWND hwnd, BOOL shadow );   /* CS_DROPSHADOW, either backend; ERROR_NOT_READY: ask again */
 /* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
  * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
  * the success-only Wayland sent cache, including both per-window scales. */

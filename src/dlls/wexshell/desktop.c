@@ -56,21 +56,58 @@ extern BOOL dwm_composition_start(void);
 extern BOOL dwm_bridge_stop(void);
 extern BOOL dwm_clock_stop(void);
 
+/* The class shadow (CS_DROPSHADOW) through the backend-neutral WexWmSetClassShadow. Under Wayland the surface may not
+ * exist yet when the window is shown, so the request is repeated for about half a second; under X11 a window without
+ * an identity publishes its own flag (winex11), as before. */
+struct class_shadow
+{
+    HWND hwnd;
+    BOOL shadow;
+};
+
+static DWORD WINAPI class_shadow_proc( void *arg )
+{
+    struct class_shadow *job = arg;
+    int tries;
+
+    /* only a show is repeated, and only while the window is still shown: a later hide must not be overtaken */
+    for (tries = 0; tries < 10 && IsWindow( job->hwnd ) && IsWindowVisible( job->hwnd ); tries++)
+    {
+        if (WexWmSetClassShadow( job->hwnd, job->shadow ) != ERROR_NOT_READY) break;
+        Sleep( 50 );
+    }
+    HeapFree( GetProcessHeap(), 0, job );
+    return 0;
+}
+
+static void class_shadow( HWND hwnd, BOOL shadow )
+{
+    struct class_shadow *job;
+    DWORD backend, capabilities;
+    HANDLE thread;
+
+    if (WexWmSetClassShadow( hwnd, shadow ) != ERROR_NOT_READY) return;
+    if (!shadow) return;   /* a hide of a window without a surface has nothing to remove */
+    if (WexWmGetCapabilities( &backend, &capabilities ) || backend != WEX_WM_BACKEND_WAYLAND) return;
+    if (!(job = HeapAlloc( GetProcessHeap(), 0, sizeof(*job) ))) return;
+    job->hwnd = hwnd;
+    job->shadow = shadow;
+    if ((thread = CreateThread( NULL, 0, class_shadow_proc, job, 0, NULL ))) CloseHandle( thread );
+    else HeapFree( GetProcessHeap(), 0, job );
+}
+
 static void CALLBACK composition_shadow_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
                                                LONG object, LONG child, DWORD thread, DWORD time )
 {
-    UINT64 window;
-    BOOL enabled = FALSE, shadow = FALSE;
+    BOOL shadow = FALSE;
     if (!hwnd || object != OBJID_WINDOW || child != CHILDID_SELF ||
         GetAncestor( hwnd, GA_ROOT ) != hwnd ||
         !(GetClassLongW( hwnd, GCL_STYLE ) & CS_DROPSHADOW)) return;
-    if (WexCompositionGetEnabled( &enabled ) || !enabled) return;
     if (event == EVENT_OBJECT_SHOW)
         SystemParametersInfoW( SPI_GETDROPSHADOW, 0, &shadow, 0 );
-    window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
-    /* Cross-process property reads can be zero. In that case winex11 publishes
+    /* Cross-process property reads can be zero (X11). In that case winex11 publishes
      * _WEX_DROPSHADOW on the X window and compose.c reads it directly. */
-    if (window) WexCompositionSetShadow( window, shadow );
+    class_shadow( hwnd, shadow );
 }
 #define IDHK_TASKLIST 1   /* Ctrl+Esc on the shell window */
 

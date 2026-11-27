@@ -638,7 +638,8 @@ static NTSTATUS wayland_apply_effects(void *args)
     else if (!radius) radius = effect->default_radius;
     request.radius = wm_effect_coord( radius, scale, 0 );
     request.tint = effect->tint;
-    if (effect->shadow) request.flags |= WEX_WM_EFFECT_SHADOW;
+    if (effect->shadow == WEX_SHADOW_CLASS) request.flags |= WEX_WM_EFFECT_CLASS_SHADOW;
+    else if (effect->shadow) request.flags |= WEX_WM_EFFECT_SHADOW;
     if (effect->materials)
     {
         request.backdrop = backdrops[effect->kind];

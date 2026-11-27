@@ -36,6 +36,7 @@
 @ stdcall WexWmStop()
 @ stdcall WexWmFocus(int64)
 @ stdcall WexWmApplyEffects(long ptr ptr)
+@ stdcall WexWmSetClassShadow(long long)
 @ stdcall WexWmGetEffectIdentity(long ptr)
 @ stdcall WexWmSetClock(ptr ptr)
 @ stdcall WexWmWaitFrame(ptr long)

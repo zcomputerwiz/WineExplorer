@@ -1007,6 +1007,28 @@ DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_
     return params.err;
 }
 
+/* The shadow of a class with CS_DROPSHADOW (D3), one call for both backends: the shell decides which windows and when;
+ * the backend's own way is here. X11: the compositor's per-window shadow flag (compose.c). Wayland: a shadow-only
+ * effect (no backdrop, square corners) that wexcomp draws for any window the shell flags. ERROR_NOT_READY: the window
+ * has no identity yet (its surface is not there); the caller may ask again. */
+DWORD WINAPI WexWmSetClassShadow( HWND hwnd, BOOL shadow )
+{
+    struct wm_apply_effects_params params = { 0 };
+    WEX_WINDOW_EFFECT effect = { 0 };
+    WEX_WM_EFFECT_RESULT result;
+
+    if (!effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params )) return ERROR_NOT_READY;
+    if (params.backend == WEX_WM_BACKEND_X11)
+    {
+        BOOL enabled = FALSE;   /* the X compositor may be off (the preference, or it failed to start) */
+        if (WexCompositionGetEnabled( &enabled ) || !enabled) return ERROR_SUCCESS;
+        return WexCompositionSetShadow( params.window, shadow );
+    }
+    effect.kind = WEX_EFFECT_NONE;
+    effect.shadow = shadow ? WEX_SHADOW_CLASS : 0;   /* XP's class shadow, not the frame shadow of the Windows 10/11 or Aero style */
+    return WexWmApplyEffects( hwnd, &effect, &result );
+}
+
 /* Only an explicitly adopted Wayland WM selects its handle transport. */
 static DWORD thumbnail_backend(void)
 {
