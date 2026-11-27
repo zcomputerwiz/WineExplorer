@@ -2,9 +2,20 @@
 
 # A session's system role and session 0's machine registry (design note)
 
-Status: draft 4, 2026-11-27, for the owner's decision; the reviewer finds it ready. Docs only. Draft 3 (0b992d87)
-with the reviewer's F1 rules worked in (reads from session 0, fail closed, one security descriptor). Code review
-follows the owner's decision.
+Status: decided 2026-11-27 (the owner, through the orchestrator: "Yes, go ahead with your recommendations").
+
+- **F1 is built now**: service and driver configuration through session 0's service manager as the caller, with its
+  three rules (reads from session 0; fail closed, local serving only without session 0; one security descriptor for a
+  session's own instances). It is a correctness fix (installs that create services or drivers), tied to B128.
+- **P1, S1 and option 2 are deferred, recorded as a known risk.** The owner's question: is it needed at all, when
+  Windows also has SYSTEM processes in user sessions that write HKLM, protected by the kernel? The answer: while the
+  gid barrier holds (below), a session's system role is out of a standard user's reach much as SYSTEM in a Windows
+  session is out of reach of that session's user, so the exposure is comparable to Windows; what P1 adds is defence in
+  depth against a code-execution bug in a system-role process, or a change that weakens the gid barrier. Revisit when
+  either happens, or when the system role starts taking more input from the user. The design below stays as the plan
+  for that day.
+
+Draft 4 had the reviewer's F1 rules worked in; the reviewer found it ready.
 
 ## The decision
 
