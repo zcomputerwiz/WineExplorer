@@ -2,7 +2,7 @@
 
 CC ?= gcc
 CFLAGS ?= -std=gnu11 -Wall -Wextra -O2
-CFLAGS += -D_GNU_SOURCE
+CFLAGS += -D_GNU_SOURCE -I../common
 
 PREFIX ?= /usr/local
 DESTDIR ?=

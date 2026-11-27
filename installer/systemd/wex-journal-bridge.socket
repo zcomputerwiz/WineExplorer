@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The journal bridge's socket (docs/EVENTLOG_JOURNAL.md): session 0's EventLog service connects here. The bridge
+# serves only session 0's account, by SO_PEERCRED uid; the mode and group are a second fence, not the check.
+[Unit]
+Description=WineExplorer journal bridge socket
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/EVENTLOG_JOURNAL.md
+
+[Socket]
+ListenStream=/run/wineexplorer-journal/events
+SocketUser=wexjournal
+SocketGroup=wexsys
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

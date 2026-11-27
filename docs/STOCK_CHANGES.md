@@ -5219,3 +5219,20 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## Event Log and the systemd journal, J1 (2026-11-27)
+
+Wine `claude/eventlog-journal-j1` (on development), `docs/EVENTLOG_JOURNAL.md` ("J1 as built"):
+
+- `dlls/wevtsvc/journal.c` (new): session 0's EventLog service keeps the connection to `wex-journal-bridge`, stores the
+  mapped journal events it receives (parsed as untrusted: caps, terminated strings, control characters and escapes
+  stripped) with their cursor in the record's data, and sends back the records it stores otherwise.
+- `dlls/wevtsvc/unixlib.c`, `unixlib.h` (new), `Makefile.in` (`UNIXLIB = wevtsvc.so`): the socket to the bridge's fixed
+  path (Wine's Winsock has no `AF_UNIX`).
+- `dlls/wevtsvc/wevtsvc_msg.mc` (new): the message module of the service's and the bridge's sources, our own wording.
+- `dlls/wevtsvc/wevtsvc.c`, `wevtsvc_private.h`: `evt_build_record` exported within the module; reported records and
+  the service's own go to the bridge (`journal_record`); the completion key `JOURNAL_KEY` dispatches the bridge's
+  events; `journal_start` and `journal_stop` in session 0.
+- `include/wine/wex_journal.h` (new, listed in `include/Makefile.in`): the wire format, shared with the bridge.
+- `loader/wine.inf.in`: the `Linux` log (`CustomSD`: SYSTEM full, administrators read and clear), and the sources
+  Service Control Manager, Disk, EventLog and Linux Kernel with the message module.

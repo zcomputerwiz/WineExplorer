@@ -48,6 +48,7 @@
 #include <limits.h>
 
 #include "protocol.h"
+#include "wex_peer.h"
 #include "sha256.h"
 #include "trace.h"
 #include "ksm_tuner.h"
@@ -1824,8 +1825,8 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
     }
     if (req.magic == WEXPF_MAGIC && req.version == WEXPF_VERSION && req.op == WEXPF_OP_GET_TRACE && req.flags == 0)
     {
-        struct ucred cred;
-        socklen_t cred_len = sizeof(cred);
+        uid_t cred_uid;
+        pid_t cred_pid;
         struct
         {
             struct wexpf_reply r;
@@ -1833,12 +1834,12 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
         } out;
         size_t len = 0;
 
-        if (fd_count != 0 || getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) < 0)
+        if (fd_count != 0 || wex_peer_cred( conn_fd, &cred_uid, &cred_pid ) < 0)
         {
             reject_request( ctx, conn_fd, WEXPF_BAD_REQUEST, "trace request with a descriptor, or no credentials" );
             goto out;
         }
-        len = trace_take_private( cred.pid, cred.uid, out.list, sizeof(out.list) );
+        len = trace_take_private( cred_pid, cred_uid, out.list, sizeof(out.list) );
         memset( &out.r, 0, sizeof(out.r) );
         out.r.magic = WEXPF_MAGIC;
         out.r.version = WEXPF_VERSION;
@@ -1892,17 +1893,7 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
         goto out;
     }
 
-    {
-        struct ucred cred;
-        socklen_t cred_len = sizeof(cred);
-
-        if (getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) == 0)
-        {
-            tl_peer_uid = cred.uid;
-            peer_pid = cred.pid;
-        }
-        else tl_peer_uid = (uid_t)-1;
-    }
+    if (wex_peer_cred( conn_fd, &tl_peer_uid, &peer_pid ) < 0) tl_peer_uid = (uid_t)-1;
 
     extract_identity( &st, &id );
     status = build_or_fetch_image( ctx, client_fd, &id, &cfg, &result_fd, &image_size, sha_hex );

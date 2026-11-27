@@ -404,6 +404,13 @@ install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.sysusers" "$STAGE_SESSION/usr/li
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wexprefetchd.conf"
 install -m644 "$SCRIPT_DIR/systemd/prefetch.conf.example" "$STAGE_SESSION/etc/wineexplorer/prefetch.conf"
 echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
+# the journal bridge (docs/EVENTLOG_JOURNAL.md): socket-activated, its own account in systemd-journal
+make -C "$ROOT_DIR/src/wex-journal-bridge" >/dev/null
+install -D -m755 "$ROOT_DIR/src/wex-journal-bridge/wex-journal-bridge" \
+    "$STAGE_SESSION/usr/local/libexec/wineexplorer/wex-journal-bridge"
+cp "$SCRIPT_DIR/systemd/wex-journal-bridge.socket" "$SCRIPT_DIR/systemd/wex-journal-bridge.service" \
+    "$STAGE_SESSION/lib/systemd/system/"
+install -m644 "$SCRIPT_DIR/systemd/wex-journal-bridge.sysusers" "$STAGE_SESSION/usr/lib/sysusers.d/wex-journal-bridge.conf"
 # /etc overrides the generator's own /usr/lib/systemd/zram-generator.conf, which systemd-zram-generator owns
 install -d "$STAGE_SESSION/etc/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
 install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/etc/systemd/zram-generator.conf"
@@ -426,6 +433,7 @@ cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 set -e
 systemd-sysusers wexprefetchd.conf || true
 systemd-tmpfiles --create wexprefetchd.conf || true
+systemd-sysusers wex-journal-bridge.conf || true
 
 # Safe Mode (docs/SAFE_MODE.md). The earlier implementation (wex-safemode-setup.sh) edited LightDM, PAM and
 # AccountsService files at every boot; remove what it may have left behind.
@@ -524,6 +532,8 @@ systemctl enable wex-locale-gen.service || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
 systemctl enable wexprefetchd.socket || true
 systemctl start wexprefetchd.socket || true
+systemctl enable wex-journal-bridge.socket || true
+systemctl start wex-journal-bridge.socket || true
 systemctl enable wexksmtuned.service || true
 systemctl start wexksmtuned.service || true
 if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then

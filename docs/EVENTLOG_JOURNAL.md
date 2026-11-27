@@ -56,13 +56,13 @@ journal would put every user's journal behind any flaw in that code. So:
   Unix socket, `/run/wineexplorer-journal/events` (owner `wexjournal`, group `wexsys`, mode 0660). **Each connection is
   checked by uid with `SO_PEERCRED`: session 0's account only.** The group alone would not do: elevated processes run
   with the system group (`wexsys`) too.
-- The EventLog service in session 0 (`wevtsvc.dll`) connects with Winsock's `AF_UNIX` and stores what it receives as
-  records of the mapped log and source. The bridge never writes the Event Log's files, and session 0 never reads the
-  journal.
+- The EventLog service in session 0 (`wevtsvc.dll`) connects through a small Unix library of its own (`wevtsvc.so`,
+  Wine's usual `__wine_unix_call`: connect to the fixed path, send, receive with a timeout, close), since Wine's Winsock
+  has no `AF_UNIX` (correction to draft 2, told to the reviewer before J1), and stores what it receives as records of
+  the mapped log and source. The bridge never writes the Event Log's files, and session 0 never reads the journal.
 - **Why a socket and not D-Bus through wexhost** (the project's preference elsewhere): session 0 stays off the system
-  bus, the peer check is the kernel's (`SO_PEERCRED`) with no bus policy to get right, and Winsock's `AF_UNIX` needs no
-  Unix library in `wevtsvc`. The socket server shares `wexprefetchd`'s peer-check and framing pattern (a small common
-  header in `src/`, not a second hand-rolled one).
+  bus, and the peer check is the kernel's (`SO_PEERCRED`) with no bus policy to get right. The peer check is shared
+  with `wexprefetchd` (`src/common/wex_peer.h`, which it now uses too).
 - Without the bridge (not installed, plain prefixes, development mode) nothing changes.
 
 Alternative considered: `journalctl --follow -o json` started by the service. Rejected: it would need the journal
@@ -212,6 +212,37 @@ only with `SeSecurityPrivilege`).
    when the previous boot did not stop cleanly, found from the journal's boot list). 6008 needs persistent journal
    storage (`Storage=persistent`, or `auto` with `/var/log/journal` present: Debian 13's default); without it there is
    no previous boot to look at, and 6008 is not written.
+
+## J1 as built (2026-11-27)
+
+Wine `claude/eventlog-journal-j1`, WineExplorer `claude/eventlog-journal-j1`:
+
+- **Wire:** `include/wine/wex_journal.h` (plain C types, shared by both sides): `SOCK_STREAM` frames of a 16-byte
+  header and a body, at most 64 KiB; `HELLO`, `EVENT`, `GAP`, `RECORD`.
+- **`wevtsvc`:** `journal.c` (a worker thread: connect, `HELLO` with the cursor, frames parsed as untrusted and posted
+  to the service's completion port; the service's thread stores them; records the service stores go back through a
+  bounded queue), `unixlib.c` (the socket), `wevtsvc_msg.mc` (our message module: Service Control Manager 7000, 7031
+  and 7034, Disk 11, EventLog 6000, Linux Kernel 1-6, the listed units' 1). The cursor is the record's data
+  (`WEXJ_CURSOR_MAGIC` and the cursor), found again at start in the newest journal-sourced record of System,
+  Application and Linux. `wine.inf`: the Linux log with its `CustomSD`, the sources with the message module.
+- **The bridge:** `src/wex-journal-bridge/wex-journal-bridge.c`, units `wex-journal-bridge.{socket,service}`, account
+  `wexjournal` (`sysusers`), packaged in the session package. One connection served at a time; a new one from session
+  0's uid replaces it (the service restarted), any other uid is refused at once. `--first-start now` (tests): without
+  a stored cursor, from now instead of from this boot.
+- **7031/7034:** a "unit failed" entry waits for PID 1's next word on that unit, 2 s plus the unit's `RestartUSec`: a
+  failed start job gives 7000, a scheduled restart 7031, another failure or the end of the wait 7034. Resource
+  accounting entries in between decide nothing.
+- **Known limit:** journald attributes a stream to a unit by looking up the writing process; a short-lived helper
+  (`systemd-cat` in a unit) can be gone first, and its lines then carry no `_SYSTEMD_UNIT`, so row 12 does not see
+  them (fail-safe: nothing is mapped). A unit's own stdout and stderr are always attributed.
+- **7031's insertion strings** are coded as four (the service, the count, the delay, the action) and still to be
+  confirmed from the lab VM's provider metadata (guest control did not answer on 2026-11-27).
+- **Tests:** suite section `s0_journal` (the bridge built from `src/` and run as root for the suite's session 0 account):
+  7000, 7034 and 7031 (exclusive) from units failing on purpose; forged entries of a standard user (PID 1's, a listed
+  unit's and kernel-looking ones) and a Wine debug line not mapped; a long string cut with "...", escapes stripped; a
+  reported event in the journal with its fields; another account refused; a lost cursor gives `GAP`, a malformed frame
+  closes; the service's restart resumes without a duplicate; a flood of 150 errors stored about 50 times and the
+  minute's notice of the rest. Not yet run: an installed image with the socket-activated unit as `wexjournal`.
 
 ## Review record
 

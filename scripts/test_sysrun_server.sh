@@ -201,6 +201,7 @@ s0_service       s0_base            n   s0
 s0_scmloop       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
 s0_accounts      s0_base,c5_build   n   s0
+s0_journal       s0_base            n   s0
 s0_x0            s0_base            l   lab
 s0_accounts_svc  s0_base            n   s0
 s0_accounts_chain s0_base,c5_build  n   s0
@@ -5489,6 +5490,135 @@ done
 s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
 s0_wine reg delete "$EVK\\Security\\WexL1Sec" /f >/dev/null || true
 el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
+if section s0_journal; then set +e; ( section_enter
+# docs/EVENTLOG_JOURNAL.md, J1: wex-journal-bridge (here as root, serving the suite's session 0 account) maps selected
+# system journal entries, by the fields journald sets itself, into session 0's Event Log, and the Event Log's records
+# back into the journal. Units made with systemd-run fail on purpose; a standard user forges entries; Wine's debug
+# lines never get in; strings are cut and stripped; the socket serves session 0's uid only; a lost cursor gives the gap
+# Warning; a restart of the service resumes without a duplicate; the limit drops a flood and says so.
+[ -d /run/systemd/system ] && command -v systemd-run >/dev/null && command -v logger >/dev/null ||
+    section_skip "no systemd, systemd-run or logger here"
+for b in 64; do
+    [ -f "$ROOT/probes/evp$b.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" \
+        -o "$ROOT/probes/evp$b.exe" "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "journal: cannot build the probe"
+done
+JB="$ROOT/jbridge"; rm -rf "$JB"; mkdir -p "$JB/src" "$JB/wine/include"
+cp -r "$SRC/src/common" "$SRC/src/wex-journal-bridge" "$JB/src/" && cp -r "$SRC/wine/include/wine" "$JB/wine/include/" &&
+    make -C "$JB/src/wex-journal-bridge" >/dev/null || fail "journal: cannot build the bridge"
+JBIN="$JB/src/wex-journal-bridge/wex-journal-bridge"
+JSOCK=/run/wineexplorer-journal/events
+R=$(date +%s)   # unit names of this run: the journal of a long-lived boot keeps earlier runs' units
+JUNITS="wexj-start-$R wexj-crash-$R wexj-restart-$R wexj-listed-$R wexj-flood-$R wexj-after-$R"
+printf 'unit=wexj-listed-%s.service source=WexJ Listed\nunit=wexj-flood-%s.service source=WexJ Flood\n' "$R" "$R" \
+    > "$JB/events.conf"
+chmod 644 "$JB/events.conf"
+mkdir -p /run/wineexplorer-journal
+jb_start() { "$JBIN" --foreground --socket "$JSOCK" --config "$JB/events.conf" --session0-user "$S0U" --first-start now >> "$JB/bridge.log" 2>&1 & JBP=$!; }
+jb_done()
+{
+    kill "$JBP" 2>/dev/null || true; wait "$JBP" 2>/dev/null || true
+    rm -rf /run/wineexplorer-journal
+    for u in $JUNITS; do systemctl stop "$u" 2>/dev/null || true; systemctl reset-failed "$u" 2>/dev/null || true; done
+}
+jfail() { echo "--- bridge log:" >&2; tail -25 "$JB/bridge.log" >&2; jb_done; fail "$@"; }
+evs() { s0_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r' || true; }
+jserving() { local n="$1"; for i in $(seq 1 80); do [ "$(grep -c "serving session 0's EventLog service" "$JB/bridge.log")" -ge "$n" ] && return 0; sleep 0.5; done; return 1; }
+: > "$JB/bridge.log"
+jb_start
+s0_wine sc start EventLog >/dev/null || true
+jserving 1 || jfail "journal: session 0's EventLog service did not connect to the bridge"
+ok st_journal_session0_service_connects_to_the_bridge
+
+T0=$(date +%s)
+systemd-run --quiet --unit=wexj-start-$R -p Type=oneshot -p 'Description=WexJ Start Test' /bin/false 2>/dev/null || true
+systemd-run --quiet --unit=wexj-crash-$R -p 'Description=WexJ Crash Test' /bin/sh -c 'sleep 1; exit 3' || true
+systemd-run --quiet --unit=wexj-restart-$R -p Restart=on-failure -p RestartSec=1 -p 'Description=WexJ Restart Test' \
+    /bin/sh -c 'sleep 1; exit 4' || true
+# a standard user forges PID 1's, a listed unit's and the kernel's words (only fields journald sets decide: R1)
+printf 'MESSAGE_ID=be02cf6855d2428ba40df7e9d022f03d\nUNIT=wexj-forged.service\nMESSAGE=Failed to start WexJ Forged\nPRIORITY=3\nSYSLOG_IDENTIFIER=systemd\n' |
+    runuser -u "$STD" -- logger --journald || true
+printf 'MESSAGE_ID=d9b373ed55a64feb8242e02dbe79a49c\nUNIT=wexj-forged.service\nUNIT_RESULT=exit-code\nMESSAGE=WexJ Forged unit failed\nPRIORITY=3\n' |
+    runuser -u "$STD" -- logger --journald || true
+printf 'UNIT=wexj-listed-%s.service\nSYSLOG_IDENTIFIER=wexj-listed\nMESSAGE=WEXJ FORGED LISTED\nPRIORITY=3\n' "$R" |
+    runuser -u "$STD" -- logger --journald || true
+runuser -u "$STD" -- logger -p kern.crit -t kernel 'blk_update_request: I/O error, dev wexjz, sector 1 WEXJ FORGED KERNEL' || true
+# a listed unit's own error, with an escape sequence and a long string, and a Wine debug line (never stored)
+# (a script file: systemd-run's command line goes through systemd's own escape processing. The unit's own stdout,
+# "<3>" giving the priority: journald attributes a short-lived systemd-cat's lines to the unit only when it can still
+# look the process up)
+cat > "$JB/listed.sh" <<'EOF'
+echo '<3>0024:err:module:load_dll WEXJ DEBUG LINE'
+printf '<3>WEXJ REAL \033[31mERROR\033[0m\n'
+echo "<3>WEXJ LONG $(head -c 3000 /dev/zero | tr '\0' 'L')"
+sleep 1
+EOF
+chmod 0755 "$JB" "$JB/listed.sh"
+systemd-run --quiet --unit=wexj-listed-$R -p Type=oneshot /bin/sh "$JB/listed.sh" || true
+want() { for i in $(seq 1 60); do evs read "$1" | grep -q "$2" && return 0; sleep 0.5; done; return 1; }
+wantlong() { for i in $(seq 1 150); do evs read "$1" | grep -q "$2" && return 0; sleep 0.5; done; return 1; }
+want System 'id=7000 type=1 source=Service Control Manager strings=2 first=WexJ Start Test all=WexJ Start Test|the process exited with code 1$' ||
+    { evs read System | grep -i wexj >&2; jfail "journal: no 7000 for the unit that failed to start"; }
+want System 'id=7034 type=1 source=Service Control Manager strings=2 first=WexJ Crash Test all=WexJ Crash Test|1$' ||
+    { evs read System | grep -i wexj >&2; jfail "journal: no 7034 for the unit that failed while running"; }
+want System 'id=7031 type=1 source=Service Control Manager strings=4 first=WexJ Restart Test all=WexJ Restart Test|1|1000|Restart the service$' ||
+    { evs read System | grep -i wexj >&2; jfail "journal: no 7031 for the unit with a restart"; }
+systemctl stop "wexj-restart-$R" 2>/dev/null
+evs read System | grep -q 'id=7034 .*first=WexJ Restart Test' &&
+    { evs read System | grep -i wexj >&2; jfail "journal: 7034 and 7031 for the same failure (R5)"; }
+ok st_journal_unit_failures_become_service_control_manager_events
+want Linux 'source=WexJ Listed strings=1 first=WEXJ REAL  *ERROR *$' ||
+    { evs read Linux | tail -5 >&2; jfail "journal: the listed unit's error is not in the Linux log, escapes stripped"; }
+want Linux 'source=WexJ Listed strings=1 first=WEXJ LONG L*\.\.\.$' ||
+    { evs read Linux | tail -5 >&2; jfail "journal: a long string was not cut"; }
+[ "$(evs read Linux | grep 'first=WEXJ LONG' | sed 's/.*first=//' | wc -c)" -le 1026 ] || jfail "journal: the cut string is over the cap"
+sleep 2
+ALL="$(evs read System; evs read Linux; evs read Application)"
+! grep -q 'WexJ Forged\|WEXJ FORGED\|wexjz' <<<"$ALL" || { grep 'WexJ Forged\|WEXJ FORGED\|wexjz' <<<"$ALL" >&2; jfail "journal: a forged entry was mapped (R1)"; }
+! grep -q 'WEXJ DEBUG LINE' <<<"$ALL" || jfail "journal: a Wine debug line was stored (scope 3)"
+ok st_journal_forged_entries_and_debug_lines_are_not_mapped
+# the Event Log's records go to the journal, with their fields
+evs report WexJTest 4 4242 hello-journal >/dev/null
+for i in $(seq 1 30); do journalctl -q --since=@"$T0" SYSLOG_IDENTIFIER=wex-eventlog WEX_EVENT_ID=4242 -o verbose | grep -q 'WEX_EVENTLOG_SOURCE=WexJTest' && break; sleep 0.5; done
+journalctl -q --since=@"$T0" SYSLOG_IDENTIFIER=wex-eventlog WEX_EVENT_ID=4242 -o verbose | grep -q 'WEX_EVENTLOG_LOG=Application' ||
+    jfail "journal: a reported event did not reach the journal"
+ok st_journal_event_log_records_reach_the_journal
+# the socket serves session 0's account only, by uid (a standard user is refused)
+OUT="$(runuser -u "$STD" -- python3 -I "$SRC/scripts/journal-bridge-client.py" "$JSOCK" connect 2>&1)"
+grep -q 'end=eof' <<<"$OUT" && grep -q "refused a connection from uid $STD_UID " "$JB/bridge.log" ||
+    { echo "$OUT" >&2; jfail "journal: the bridge served another account"; }
+ok st_journal_bridge_refuses_other_accounts
+# a cursor the journal no longer has: the GAP frame first; a malformed frame closes the connection
+OUT="$(runuser -u "$S0U" -- python3 -I "$SRC/scripts/journal-bridge-client.py" "$JSOCK" hello \
+    's=00000000000000000000000000000000;i=1;b=00000000000000000000000000000000;m=1;t=1;x=1' 3 2>&1)"
+[ "$(grep -m1 '^frame=' <<<"$OUT")" = frame=3 ] || { echo "$OUT" | head -5 >&2; jfail "journal: no GAP for a lost cursor"; }
+OUT="$(runuser -u "$S0U" -- python3 -I "$SRC/scripts/journal-bridge-client.py" "$JSOCK" garbage 2>&1)"
+grep -q 'end=eof' <<<"$OUT" && grep -q 'a malformed frame from the service' "$JB/bridge.log" ||
+    { echo "$OUT" | tail -3 >&2; jfail "journal: a malformed frame did not close the connection"; }
+ok st_journal_lost_cursor_gives_a_gap_and_bad_frames_close
+# the service reconnects (it replaced the test clients) and resumes from its stored cursor: no duplicate, new events
+N=$(grep -c "serving session 0's EventLog service" "$JB/bridge.log")
+s0_wine sc stop EventLog >/dev/null || true; sleep 2; s0_wine sc start EventLog >/dev/null || true
+jserving $((N + 1)) || jfail "journal: the restarted service did not connect again"
+systemd-run --quiet --unit=wexj-after-$R -p Type=oneshot -p 'Description=WexJ After Restart' /bin/false 2>/dev/null || true
+want System 'id=7000 .*first=WexJ After Restart' || jfail "journal: no event after the service's restart"
+[ "$(evs read System | grep -c 'id=7000 .*first=WexJ Start Test')" = 1 ] || jfail "journal: an event was stored twice after the restart"
+ok st_journal_service_restart_resumes_without_a_duplicate
+# a flood of a listed unit's errors is rate-limited (burst 50), and the minute's notice says how many were dropped
+cat > "$JB/flood.sh" <<'EOF'
+for i in $(seq 1 150); do echo "<3>WEXJ FLOOD $i"; done
+sleep 1
+EOF
+chmod 0755 "$JB/flood.sh"
+systemd-run --quiet --unit=wexj-flood-$R -p Type=oneshot /bin/sh "$JB/flood.sh" || true
+sleep 3
+NF=$(evs read Linux | grep -c 'source=WexJ Flood')
+[ "$NF" -ge 40 ] && [ "$NF" -le 60 ] || jfail "journal: the flood stored $NF records (the limit's burst is 50)"
+wantlong System "id=5 type=2 source=Linux Kernel strings=3 first=wexj-flood-$R.service all=wexj-flood-$R.service|WexJ Flood|" ||
+    jfail "journal: no notice of the dropped entries"
+ok st_journal_flood_is_rate_limited_and_reported
+jb_done
+kill_servers
 true; ); section_leave $?; fi
 if section s0_accounts; then set +e; ( section_enter
 # H1: accounts_forward, the accounts service's way to the root helper. scripts/accounts-probe.c stands in for the

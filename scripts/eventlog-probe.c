@@ -170,9 +170,19 @@ static void print_records( const BYTE *buf, DWORD size )
         const WCHAR *source = (const WCHAR *)(rec + 1);
         const WCHAR *str = (const WCHAR *)(buf + pos + rec->StringOffset);
 
+        DWORD i;
+        const WCHAR *s;
+
         if (rec->Length < sizeof(*rec) || rec->Length > size - pos) break;
-        printf( "rec=%lu id=%lu type=%u source=%ls strings=%u first=%ls\n", (unsigned long)rec->RecordNumber,
+        printf( "rec=%lu id=%lu type=%u source=%ls strings=%u first=%ls", (unsigned long)rec->RecordNumber,
                 (unsigned long)rec->EventID, rec->EventType, source, rec->NumStrings, rec->NumStrings ? str : L"" );
+        /* records with several strings (the journal bridge's): every string, "|" between them */
+        if (rec->NumStrings > 1)
+        {
+            printf( " all=" );
+            for (i = 0, s = str; i < rec->NumStrings; i++, s += wcslen( s ) + 1) printf( "%s%ls", i ? "|" : "", s );
+        }
+        printf( "\n" );
         pos += rec->Length;
     }
 }
