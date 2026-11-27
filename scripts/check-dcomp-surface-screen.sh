@@ -9,7 +9,7 @@ Xvfb :79 -screen 0 1024x768x24 >/dev/null 2>&1 &
 sleep 2
 [ -d $WINEPREFIX ] || timeout 150 ./wine wineboot -i >/dev/null 2>&1
 rm -rf /root/grab; mkdir /root/grab
-( for i in $(seq 1 400); do xwd -root -silent -display :79 2>/dev/null | xwdtopnm 2>/dev/null > /root/grab/$i.ppm; sleep 0.05; done ) &
+( for i in $(seq 1 400); do import -display :79 -window root ppm:- 2>/dev/null > /root/grab/$i.ppm; sleep 0.05; done ) &
 G=$!
 WINEDEBUG=-all timeout 90 ./wine dlls/dcomp/tests/x86_64-windows/dcomp_test.exe dcomp 2>&1 | grep -aE "tests executed"
 kill $G 2>/dev/null

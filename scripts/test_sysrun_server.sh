@@ -2954,7 +2954,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         # r9_typed_by_keyboard: the real window, driven by the host keyboard (xdotool on Xvfb), no lab hook: a wrong
         # password, then the right password in the fresh dialog (which shows the error). Screenshots go to
         # $WEX_R8_SHOTS when set.
-        r9_shot() { [ -n "${WEX_R8_SHOTS:-}" ] || return 0; DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "$WEX_R8_SHOTS/$1.png" 2>/dev/null || true; }
+        r9_shot() { [ -n "${WEX_R8_SHOTS:-}" ] || return 0; DISPLAY=":$DNUM" import -window root "$WEX_R8_SHOTS/$1.png" 2>/dev/null || true; }
         r9_wait_log() {   # pattern count: waits up to 60 s for that many matching lines of the brokers' trace
             local i
             for i in $(seq 1 600); do
@@ -6623,7 +6623,7 @@ secpol_open_threshold()   # the Properties sheet of the lockout threshold, the n
     XD mousemove 50 182 click 1; XD key ctrl+a BackSpace; XD type 3; sleep 1
     XD key Return
 }
-secpol_shot() { DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "/var/tmp/wex-run/secpol-$1.png" 2>/dev/null || true; cp "$POL/secpol-win.out" /var/tmp/wex-run/secpol-win.out 2>/dev/null || true; }
+secpol_shot() { DISPLAY=":$DNUM" import -window root "/var/tmp/wex-run/secpol-$1.png" 2>/dev/null || true; cp "$POL/secpol-win.out" /var/tmp/wex-run/secpol-win.out 2>/dev/null || true; }
 secpol_windows() { XD search --onlyvisible --name 'Local Security Settings' 2>/dev/null | wc -l; }
 secpol_offer() { XD search --onlyvisible --name 'Administrator rights' 2>/dev/null | wc -l; }   # the message box of the offer, by its own title
 # a limited administrator and a standard user: the save is refused with ERROR_ACCESS_DENIED, nothing is left in the spool
