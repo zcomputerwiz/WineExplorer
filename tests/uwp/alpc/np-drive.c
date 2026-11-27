@@ -152,6 +152,7 @@ int main(int argc, char **argv)
         /* Ctrl+S, then report the window in front (a save dialog?) and the top-level windows of the Notepad process */
         INPUT k[4] = {{0}};
         char cls[96], title[128];
+        int entered = 0;
         HWND fg;
 
         k[0].type = INPUT_KEYBOARD; k[0].ki.wVk = VK_CONTROL;
@@ -188,10 +189,11 @@ int main(int argc, char **argv)
                 ReleaseDC(fg, wdc);
                 ReleaseDC(NULL, sdc);
             }
-            if (i == 3 && getenv("NP_SAVE_ENTER") && !strcmp(cls, "#32770"))
+            if (i >= 3 && !entered && getenv("NP_SAVE_ENTER") && !strcmp(cls, "#32770"))
             {
                 /* accept the dialog with Enter (the default button, Save) */
                 key(VK_RETURN);
+                entered = 1;
                 printf("Enter pressed\n");
             }
         }
