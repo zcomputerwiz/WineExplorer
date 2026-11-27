@@ -2,21 +2,22 @@
 
 # A session's system role and session 0's machine registry (design note)
 
-Status: draft 2, 2026-11-27, for the owner's decision. Docs only. Draft 1 (dc657119) with the reviewer's comments
-worked in: the steering vectors checked one by one, P1 shipped fail-closed before any further measuring, one choke
-point for every token description, P2 as exact entries.
+Status: draft 3, 2026-11-27, for the owner's decision. Docs only. Draft 2 (3e85e8d2) with the reviewer's second
+round worked in: service configuration goes to session 0's service manager with the caller's identity (F1, before
+P1), S1 decided per key, B108 on option B.
 
 ## The decision
 
 | | Option 1: narrow brokered allow-list | Option 2: no machine writes from a session's system role |
 |---|---|---|
 | A session's system role writes session 0's HKLM | as the user (P1), except exact allow-listed values that session 0 writes for it (P2) | as the user (P1), no exceptions |
-| Measured writes that need session 0 (below) | none found | none found |
-| What breaks | nothing measured; P2 exists for what the refusal log finds later | the same today; a later need becomes a code change (session-local key, or a session 0 service) instead of a list entry |
-| Effort | option 2 plus the P2 mechanism (a root-owned list, exact key/value/type matching, a caller check), about 2 more days, plus a review line per entry | P1 with the refusal log and USER_HIVE (about 1 day with tests), S1 session-local keys (about 1 day) |
+| Measured writes that need session 0 (below) | service configuration only, which F1 sends to session 0's service manager as the caller | the same |
+| What breaks | nothing measured once F1 is in; P2 exists for what the refusal log finds later | the same today; a later need becomes a code change (session-local key, or a call to a session 0 service as the caller) instead of a list entry |
+| Effort | option 2 plus the P2 mechanism (a root-owned list, exact key/value/type matching, a caller check), about 2 more days, plus a review line per entry | F1 (about 1-2 days), P1 with the refusal log and USER_HIVE (about 1 day with tests), S1 session-local keys (about 1 day) |
 | Risk | every entry is a SYSTEM write a user's session can trigger; the list is where the next hole would be | none added |
 
-Recommendation: **option 2 now**. M1 found nothing a session's system role must write in session 0's machine
+Recommendation: **option 2 now**, after F1. Apart from service configuration, which belongs to session 0's service
+manager with the caller's identity, M1 found nothing a session's system role must write in session 0's machine
 registry; build P2 only if the refusal log later shows a real need, and decide each entry then.
 
 ## The problem
@@ -69,15 +70,50 @@ not logged; the writer is attributed from the code. The patch was reverted, neve
 
 | Key (session 0) | Values | Writer | Under P1 | Fix |
 |---|---|---|---|---|
-| `HKLM\System\ControlSet001\Control\TimeZoneInformation` | `StandardName`, `TimeZoneKeyName` | kernelbase locale init, every process that can open the key for write (kernelbase/locale.c) | refused, ignored (best effort; standard users already fail it) | S1: session-local, or leave refused |
+| `HKLM\System\ControlSet001\Control\TimeZoneInformation` | `StandardName`, `TimeZoneKeyName` | kernelbase locale init, every process that can open the key for write (kernelbase/locale.c): a mirror of the Linux zone | refused, ignored (best effort; standard users already fail it) | none: leave refused (below) |
 | `HKLM\System\MountedDevices` | `\DosDevices\C:`, `Z:`, two volume GUIDs | mountmgr.sys in the session's winedevice | refused | S1: session-local (the session's drives are already session-local) |
 | `HKLM\Software\Microsoft\Windows NT\CurrentVersion\NetworkCards\1`, `\2` | `ServiceName`, `Description` | ndis.sys in the session's winedevice | refused | S1: session-local |
-| `HKLM\System\ControlSet001\Services\WexSvcMine`, `WexSvcTbl` | a full service entry; start type, description | the suite's probe as the session's system role through the service manager | refused: **this is the hole**, test (a) | none: service changes are an administrator's, through consent |
+| `HKLM\System\ControlSet001\Services\WexSvcMine`, `WexSvcTbl` | a full service entry; start type, description | the session's services.exe saving a configuration (`save_service_config`) for the suite's probe, run as the session's system role | refused: **this is the hole**, test (a) | F1: session 0's service manager writes it, checking the caller (below); never session-local |
 | `HKU\S-1-5-18\Console`, `Keyboard Layout\Preload`, `...\Explorer\Shell Folders`, `Software\Wine\Fonts\Cache`, `Software\Wine\Temporary System Parameters` | many | console, user32, shell32, win32u in the session's SYSTEM processes | refused | S1: the service-account hives (S-1-5-18/19/20) become session-local, so a session's system role has its own copies, as `Enum` already is |
 | `HKU\S-1-5-19`, `HKU\S-1-5-20` `Control Panel\International` (+ `Geo`) | the locale cache | kernelbase locale init in the session's LocalService and NetworkService processes | refused | S1 as above |
 
-Nothing in the list must reach session 0's own machine state: it is all state that describes the session (its drives,
-adapters, time zone, its SYSTEM's console and locale) or the hole itself.
+Apart from service configuration, nothing in the list must reach session 0's own machine state: it is state that
+describes the session (its drives, adapters, its SYSTEM's console and locale) or a mirror of the Linux zone.
+
+**The time zone.** Machine-wide on Windows, but Wine has no setter: `RtlSetTimeZoneInformation` returns
+`STATUS_PRIVILEGE_NOT_HELD`, `SetDynamicTimeZoneInformation` is a stub, so timedate.cpl cannot change it. The only
+writer is the locale init's mirror of the Linux zone, which session 0's own processes write directly. A session's
+write is refused and dropped; no session-local copy is needed. If a setter is ever added, it goes to session 0 with
+the caller's identity, as service configuration does.
+
+## Services: session 0's service manager writes them, with the caller's identity
+
+`Services` cannot go session-local: a machine service that only one session's server knows is never seen by session
+0's service manager, so service installs would break. The forwarding already exists (T5.4, programs/services/forward.c):
+a session's services.exe sends `CreateService`, `ChangeServiceConfig`, `ChangeServiceConfig2`, `DeleteService`,
+`QueryServiceObjectSecurity`, `SetServiceObjectSecurity` and the start, stop and query calls for every service that
+is not the session's own to session 0's svcctl over `\pipe\WexSession0\svcctl`, connecting while it impersonates the
+RPC caller. Session 0 checks that caller's token (an elevated administrator's, trustworthy since B132) and writes the
+key itself; a standard user is refused there, as on Windows.
+
+Two gaps let the session's system role write `Services` through its registry channel anyway:
+
+- **Not forwarded by design.** `is_session_service` keeps kernel and file-system drivers, the `Winedevice*` hosts,
+  the built-in list (PlugPlay, RpcSs, Spooler, MSIServer, ...) and services marked `WexSessionService=1` in the
+  session's own service manager, including their creation, configuration and deletion. A driver an elevated
+  administrator installs from a session is therefore written by the session's services.exe as SYSTEM.
+- **Not forwarded when it should be.** M1 shows `WexSvcMine` (own process, not a session service: forwarded by the
+  rule) saved by a session's services.exe through its channel. The session 0 log was replaced before the context
+  could be read, so the cause is not confirmed. The likely one: `forward_mode` is decided once, when the session's
+  services.exe starts (`forward_available`); if session 0's pipe is not there yet (`ERROR_FILE_NOT_FOUND`), the
+  session serves every service itself for its whole life, writing session 0's HKLM as SYSTEM. To be confirmed with a
+  trace of the svc_table run before F1 is written.
+
+**F1, before P1.** Every configuration call (create, change config and config2, delete, set security) goes to session
+0's service manager as the caller, for every service, drivers and session services included; a session's services.exe
+keeps only the running side of its own instances (start, stop, status) and reloads their configuration from session
+0's HKLM. `forward_mode` is not latched: a session whose server uses session 0 never falls back to serving machine
+services itself; while session 0 cannot be reached its calls fail. Without F1, P1 breaks service and driver installs.
 
 ## USER_HIVE
 
@@ -101,10 +137,11 @@ service-account SIDs outright.
   key, value name and the caller's image (the channel request does not carry the image today; the user's server adds
   it, for the log only, never for a decision). That is the measurement from now on,
   with the hole closed.
-- **S1, session-local keys.** Add to `wex_session_key_match`: `System\MountedDevices`,
-  `Software\Microsoft\Windows NT\CurrentVersion\NetworkCards`, `Control\TimeZoneInformation` (or leave it refused), and
-  the service-account user hives `User\S-1-5-18`, `S-1-5-19`, `S-1-5-20` for a session's server. Each one checked in the
-  suite after the change (drives, network adapters, the console of a session's service).
+- **S1, session-local keys, per key.** Add to `wex_session_key_match`: `System\MountedDevices` (the session's drives),
+  `Software\Microsoft\Windows NT\CurrentVersion\NetworkCards` (the adapters the session's ndis sees), and the
+  service-account user hives `User\S-1-5-18`, `S-1-5-19`, `S-1-5-20` for a session's server (its SYSTEM's console,
+  keyboard layout, locale cache). Not `TimeZoneInformation` (left refused, above) and never `Services` (F1). Each one
+  checked in the suite after the change.
 - **P2 (option 1 only).** A root-owned list in session 0; each entry an exact key path, value name and type, no
   prefixes or wildcards; session 0 writes the value as SYSTEM after checking the caller is that session's system role.
   Each entry gets its own review line here. Never `Services`, `Run*`, `Winlogon`, `Image File Execution Options`,
@@ -115,6 +152,9 @@ service-account SIDs outright.
 
 - (a) wexadm's session's system role writing `Services\WexHoleTest\ImagePath` (and the suite's `svc_table` "system"
   create) through its registry channel: succeeds before, refused after; session 0's `Services` unchanged.
+- (a2) After F1 and P1: an elevated wexadm's `sc create` (an own-process service and a kernel driver) from its session
+  works and the service is visible in session 0's service manager; wexstd's is refused; an MSI with `ServiceInstall`
+  installs and uninstalls cleanly; a session whose services.exe started before session 0's pipe still forwards.
 - (b) USER_HIVE with a service-account description (S-1-5-18, S-1-5-19): refused; `HKU\S-1-5-18` and
   `HKU\S-1-5-19` in session 0 unchanged.
 - (c) plugplay, winedevice (mountmgr: drives; ndis: adapters) and printing still work in a user's session; the full
@@ -122,10 +162,9 @@ service-account SIDs outright.
 
 ## Risks
 
-- **MSI under option A.** The B108 retest plans DoInstall in the user's session (option A). If MSI's NoImpersonate
-  custom actions or its service installs then run as the session's system role, P1 refuses their machine writes, under
-  both options. Session 0's MSI host (option B) is not affected. The B108 retest must run with P1 to show which; the
-  answer may decide between A and B rather than add P2 entries.
+- **MSI: option B only.** The B108 retest uses option B, the WexMsiServer host in session 0 (reviewed and batched):
+  NoImpersonate custom actions run as SYSTEM there through the consented path, and P1 does not touch it. Option A
+  (the actions in the session's system role) contradicts this fix and is not coming back.
 - A write the measurement did not reach (installers, the install chain, Office, Edge) fails after P1. The refusal log
   finds it; S1 or a code change fixes it, P2 only under option 1.
 - Programs that check "am I SYSTEM" see the user's limited token in session 0's registry only; their own process token
@@ -133,6 +172,7 @@ service-account SIDs outright.
 
 ## Order
 
-1. P1 with the refusal log and USER_HIVE, tests (a) and (b), one batch.
-2. S1 with test (c), the full suite and the install chain; the refusal log reviewed.
-3. The owner's decision on option 1 versus 2; P2 only if the log shows a need, each entry decided separately.
+1. Confirm why `WexSvcMine` was saved locally (a trace of svc_table), then F1 with test (a2).
+2. P1 with the refusal log and USER_HIVE, tests (a) and (b); F1 and P1 may share a batch, F1 first.
+3. S1 with test (c), the full suite and the install chain; the refusal log reviewed.
+4. The owner's decision on option 1 versus 2; P2 only if the log shows a need, each entry decided separately.
