@@ -89,6 +89,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/decision.c" \
     "$REPO/src/programs/wexelevate/broker0.c" \
+    "$REPO/src/programs/wexelevate/caller_class.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     -ladvapi32 -luserenv -lbcrypt
@@ -102,6 +103,7 @@ i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/decision.c" \
     "$REPO/src/programs/wexelevate/broker0.c" \
+    "$REPO/src/programs/wexelevate/caller_class.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     -ladvapi32 -luserenv -lbcrypt
