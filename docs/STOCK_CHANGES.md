@@ -5293,5 +5293,7 @@ Wine `claude/notepad-bars`, two commits on 864886e6. Windows Notepad (WinUI 3) s
   surface flush turns GDI black inside the margins into that colour, as DWM shows the backdrop through GDI's zero alpha.
   Flat without materials: the theme's face colour, 0x202020 in dark mode. With DwmAlpha the compositor draws it.
 Test: `scripts/wexbuild-root/island-backdrop.sh` (`scripts/island-backdrop-probe.cpp`: Notepad's sequence without
-WinUI), light and dark, 10/10 on Xvfb. Not run: the Wayland session (the flush is shared, so it applies there too), the
+WinUI), light and dark, 10/10 on Xvfb. The parent underlay applies only where nothing blends alpha (no DwmAlpha on the
+top-level). The c4_dwm_popup and c4_dwm_menu checks, run standalone on wexbuild: composition off, both pass before and
+after; composition on, identical before and after (that setup lacks the suite's compositor). Not run: the Wayland session (the flush is shared, so it applies there too), the
 `c4_dwm_popup`/`c4_dwm_menu` suite sections, Notepad itself.
