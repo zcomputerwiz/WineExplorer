@@ -200,7 +200,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|blanklock|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -2258,6 +2258,58 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     grep -qw wexhidden <<< "$out" || fail "the hidden account did not log on as WexHidden"
     echo "  the hidden account logged on, its name typed as WexHidden"
     shutdown_vm
+}
+
+active_user() {   # the account of the seat's active session
+    gsh 'loginctl show-session "$(loginctl show-seat seat0 -p ActiveSession --value)" -p Name --value' | tr -d '\r' \
+        | grep -m1 -E '^[a-z_][a-z0-9_-]*$'
+}
+
+blank_lock_check() {   # blank_lock_check x11|wayland: the blank account (wexhidden) logs on at the greeter, Win+L locks, and the
+                       # unlock is the greeter's: the blank password unlocks, an empty password for an account that has one
+                       # does not (docs/BLANK_PASSWORDS.md, G5: the lock is LightDM's Seat.Lock, so the lock screen is the
+                       # greeter and the PAM service is the same `lightdm`)
+    local out before after
+    desktop 600
+    to_logon_screen
+    to_classic
+    classic_logon WexHidden ""
+    desktop 600 wexhidden
+    [ "$(active_user)" = wexhidden ] || fail "wexhidden's session is not the active one after a blank logon"
+    before=$(gsh 'loginctl list-sessions --no-legend | awk "\$3 == \"wexhidden\" { print \$1 }"' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$before" ] || fail "no session of wexhidden"
+    if [ "$1" = wayland ]; then
+        gsh 'pgrep -c -u wexhidden -x wexcomp' | grep -q '^[1-9]' || fail "wexhidden's session does not run under wexcomp"
+    fi
+    echo "  $1: wexhidden logged on with a blank password (session $before)"
+    sleep 3
+    "${V[@]}" key "$TEST" meta_l-l >/dev/null
+    logon_screen
+    shot locked
+    to_classic
+    classic_logon "$USER_NAME" ""
+    logon_refused "an empty password for $USER_NAME, who has one"
+    classic_logon WexHidden ""
+    desktop 120 wexhidden
+    sleep 3
+    [ "$(active_user)" = wexhidden ] || { shot not-unlocked; fail "the blank password did not unlock wexhidden's session"; }
+    after=$(gsh 'loginctl list-sessions --no-legend | awk "\$3 == \"wexhidden\" { print \$1 }"' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ "$after" = "$before" ] || fail "unlocking made a new session of wexhidden ($before, then $after)"
+    shot unlocked
+    echo "  $1: Win+L locked; an empty password for $USER_NAME was refused; the blank password unlocked session $after"
+}
+
+phase_blanklock() {   # the lock screen and blank passwords, in the X11 and the Wayland session. Only when named
+    start_vm
+    blank_lock_check x11
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    USER_NAME=wexhidden saved_session wine-explorer-wayland || fail "cannot save the Wayland session for wexhidden"
+    start_vm
+    blank_lock_check wayland
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    USER_NAME=wexhidden saved_session restore || fail "cannot put the saved session back"
 }
 
 run_command() {   # run_command TEXT WINDOW SHOT [OCR_TEXT]: Win+R, TEXT and Enter, then a window titled WINDOW (a
