@@ -706,3 +706,45 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   Then compare with what Wine's run queues (the handler Invoke or the CoreMessagingXP item).
 - Lab trap: after a rebuild that regenerates makefiles, a copied ldr-prefix runs `wineboot -u` and hangs with u13. Write `disable` into the
   copy's `.update-timestamp` (scratchpad dq-build.sh).
+
+## 2026-11-27: the page load waits for a DispatcherQueueTimer tick
+
+- The DispatcherQueue work stays in the code, switched off (owner, 2026-11-26): `WINE_EXPERIMENTAL=dispatcherqueue` (shared parser
+  `include/wine/experimental.h`), Wine claude/coremessaging-dq d840cb8f, batch 1148. Convention in docs/STOCK_CHANGES.md.
+- Who queues the work (Windows 11 host, wintrace with _O following CoreMessagingXP's factories down to the queue and its timer,
+  wt-dq.txt):
+  - Microsoft.ui.xaml calls `DispatcherQueue.CreateTimer` on the UI queue early. It sets Interval 0 and IsRepeating false, and adds a
+    Tick handler.
+  - A XAML background thread calls the timer's Start: at 6859, then at 64406, right after InputSite. About 100–200 ms later the UI
+    thread runs Microsoft.ui.xaml's PropertyValue/Uri work (7047, and the page load at 64500).
+  - The input stack's TryEnqueue calls (Microsoft.InputStateManager via Microsoft.UI.Input) are unrelated.
+- Start is an NT timer: `NtSetTimerEx(timer, TimerSetCoalescableTimer, due 0, 0x30)`. CoreMessagingXP imports SetWaitableTimer and
+  CreateWaitableTimerExW.
+  - The UI dispatcher associates a wait packet with the timer.
+  - After a wake, it parks the timer with due `0x8000000000000001` (which also clears the signal) and runs the Tick handlers.
+  - Windows sequence before the page load (wt-disp.txt): (6,0) dispatched, then re-arm of the timer packet, Drain2, post (6,0),
+    park, PropertyValue/Uri. The tick is found in the round where the packet is re-armed on the already signaled timer.
+- Wine b41/b43: the background thread 0178 calls `SetWaitableTimer(0x120)` at 737.207 (Start #1), then blocks forever in
+  `WaitForMultipleObjectsEx`. The UI thread arms the timer's packet only at 749.692, because it ran no rounds between 737.06 and 747
+  (relay cost). It never parks the timer: the tick never runs, so Start #2 (the page load) never comes.
+- Wine server bug found and fixed: Wine claude/waitpkt-rearm 51bb1a35.
+  - The bug: a wait packet whose message went to a thread already waiting in NtRemoveIoCompletion stayed marked as queued, so
+    re-associating it failed with STATUS_INVALID_PARAMETER_1.
+  - Probe waitpkt-timer.c: Wine now matches Windows line for line. New test test_rearm_wait_completion_packet: Wine x86_64/i386 and
+    Windows 11 pass.
+  - Not enough for Notepad on its own (b42 without WINE_CM_REARM: rounds stop as before; b43 with it: same as b41).
+- How Windows reports the packets (probes drain4/drain5, plain windows registered through ordinal 2669):
+  - The (3,0) wake and Drain2 write nothing through the key or through the drain's pointer arguments.
+  - The UI thread never calls NtRemoveIoCompletionEx; only thread-pool threads do.
+  - Drain2 delivers every queued zero-APC packet **while it runs**, as a sent (0x60, 3, 0) per packet. A packet with an APC context goes
+    as (8, apc) to every window, one per call, and Windows then leaves a packet with key 0 and APC context 0xffffffff80000001 on the
+    port.
+  - The same happens when Drain2 is called from main, from inside a sent message, or from inside a posted message. Wine's Drain2 took
+    one packet and posted (1,0) instead.
+- Tried: nested drain in Wine (local branch claude/cm-drain2-nested d9e75f27, not pushed). The probe and the user32 core messaging tests
+  then match Windows, but Notepad's UI thread fail-fasts at once on the nested (3,0) (b44). As noted on 2026-11-26, Windows App SDK
+  windows never see (3,0) on Windows, but plain windows do. **Open: what makes Windows treat CoreMessagingXP's windows differently**
+  (window class or styles, registration arguments: CoreMessagingXP calls 2669 with r8 0x7ffffffffffffffc and r9 0x41, the (5,5) callback,
+  ...), and what such a window gets inside Drain2.
+- Next: give the probe window CoreMessagingXP's properties one at a time (class name and styles from a CreateWindowExW/RegisterClassExW
+  trace; 2669's third and fourth arguments) until Windows stops sending it (3,0). Then implement the CoreMessagingXP branch of Drain2.
