@@ -804,16 +804,26 @@ static void paint_mica( const struct window *w )
     struct window *desk = find_window( desktop );
     XRenderColor tint;
     unsigned int gray = w->backdrop & WEX_BACKDROP_DARK ? 0x20 : 0xf3;
+    /* the tint the shell sent (its shared table, wexhost.h: wex_material_default_tint), else the same values here */
+    unsigned int red = gray, green = gray, blue = gray;
+    unsigned int alpha = w->backdrop & WEX_BACKDROP_DARK ? 0xcc : 0x80;
 
+    if (w->backdrop & WEX_BACKDROP_TINT)
+    {
+        red = w->tint & 0xff; green = w->tint >> 8 & 0xff; blue = w->tint >> 16 & 0xff;
+        alpha = w->tint >> 24;
+    }
     if (mica_dirty) build_mica( desk );
     tint.alpha = 0xffff;
     if (mica_picture && desk)
     {
         pXRenderComposite( dpy, w->alpha ? PictOpOver : PictOpSrc, mica_picture, w->alpha, back_picture,
                            0, 0, 0, 0, desk->x, desk->y, desk->attr.width, desk->attr.height );
-        tint.alpha = w->backdrop & WEX_BACKDROP_DARK ? 0xcccc : 0x8000;
+        tint.alpha = alpha * 257;
     }
-    tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
+    tint.red = red * 257 * (tint.alpha / 65535.0);
+    tint.green = green * 257 * (tint.alpha / 65535.0);
+    tint.blue = blue * 257 * (tint.alpha / 65535.0);
     fill_tint( w, tint, 0, 0, width, height );
 }
 

@@ -232,6 +232,8 @@ static WEX_WINDOW_EFFECT pending_effect( const struct pending *p )
         effect.tinted = !!(p->blur & DWM_WINE_BLUR_TINTED);
         effect.has_region = !!(p->blur & DWM_WINE_BLUR_REGION);
     }
+    /* a material without the app's own tint gets the shared default (wexhost.h), so both compositors draw the same */
+    if (!effect.tinted && wex_material_default_tint( effect.kind, effect.dark, &effect.tint )) effect.tinted = TRUE;
     if (p->frame == 3)
     {
         /* flat8 owns an opaque accent frame; no compositor backdrop is allowed to show through it. */

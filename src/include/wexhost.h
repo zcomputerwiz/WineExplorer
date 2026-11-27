@@ -353,6 +353,18 @@ typedef struct
     RECT region;
     BOOL tinted, has_region, dark, shadow, materials;   /* shadow: 0, WEX_SHADOW_FRAME or WEX_SHADOW_CLASS */
 } WEX_WINDOW_EFFECT;
+/* The materials' default tints (0xAABBGGRR, straight alpha), one table for both compositors: the shell sends them as
+ * the tint, and the X11 composer and wexcomp draw what they are sent. As on Windows, blur behind and an accent gradient
+ * without a colour have no tint of their own (FALSE). */
+static inline BOOL wex_material_default_tint( DWORD kind, BOOL dark, DWORD *tint )
+{
+    switch (kind)
+    {
+    case WEX_EFFECT_MICA:    *tint = dark ? 0xcc202020 : 0x80f3f3f3; return TRUE;   /* 80 % / 50 % */
+    case WEX_EFFECT_ACRYLIC: *tint = dark ? 0xb3202020 : 0xb3f3f3f3; return TRUE;   /* 70 % */
+    default: return FALSE;
+    }
+}
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
