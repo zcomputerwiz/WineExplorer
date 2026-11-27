@@ -214,8 +214,29 @@ static void r9b_release( struct r9b *b, uint32_t outcome )
         r9b_trace( "released" );
 }
 
+/* B132: session 0 maps a session's system role to the account whose uid runs it and keeps SYSTEM only as a deny-only
+ * group (token_map_service_user, the only place that makes one). A user's own token never has S-1-5-18, and a user
+ * can mark deny-only only the SIDs its token has, so a deny-only S-1-5-18 marks a session's SYSTEM as session 0's
+ * server made it. */
+static BOOL r9b_token_is_mapped_system( HANDLE token, PSID system_sid )
+{
+    TOKEN_GROUPS *groups;
+    DWORD size = 0, i;
+    BOOL ok = FALSE;
+
+    GetTokenInformation( token, TokenGroups, NULL, 0, &size );
+    if (!size || !(groups = HeapAlloc( GetProcessHeap(), 0, size ))) return FALSE;
+    if (GetTokenInformation( token, TokenGroups, groups, size, &size ))
+        for (i = 0; i < groups->GroupCount && !ok; i++)
+            ok = (groups->Groups[i].Attributes & SE_GROUP_USE_FOR_DENY_ONLY) &&
+                 EqualSid( groups->Groups[i].Sid, system_sid );
+    HeapFree( GetProcessHeap(), 0, groups );
+    return ok;
+}
+
 /* The client is a session's SYSTEM (the bridge described its token; session 0 bound it to the peer server's
- * account), and session 0's server names the session it came from. */
+ * account), and session 0's server names the session it came from. Since B132 session 0 maps it to its account
+ * (r9b_token_is_mapped_system); development mode, where session 0 maps nothing, still describes SYSTEM itself. */
 static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
 {
     PSID system_sid = NULL;
@@ -229,7 +250,8 @@ static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
     if (!token) return FALSE;
     if (ConvertStringSidToSidW( L"S-1-5-18", &system_sid ))
     {
-        ok = wex_token_user_is( token, system_sid, GetLengthSid( system_sid ) );
+        ok = wex_token_user_is( token, system_sid, GetLengthSid( system_sid ) ) ||
+             r9b_token_is_mapped_system( token, system_sid );
         LocalFree( system_sid );
     }
     CloseHandle( token );
@@ -389,9 +411,12 @@ static BOOL r9b_new_token( uint8_t token[16] )
     return e1s18_fill_random( token, 16 ) && !e1s18_is_all_zero( token, 16 );
 }
 
-/* One request of one session's agent, from REQUEST to END. */
-static void r9b_request( HANDLE pipe, BOOL busy )
+/* One request of one session's agent, from REQUEST to END. The one request in flight (r9b_busy) is taken only for
+ * an admitted agent, so a caller that the descriptor lets connect but r9b_client_ok refuses never holds it; *held
+ * says whether this request took it. */
+static void r9b_request( HANDLE pipe, BOOL *held )
 {
+    BOOL busy;
     struct r9b *b;
     struct e1r8_tuple head;
     struct e1r8_launched launched;
@@ -428,6 +453,8 @@ static void r9b_request( HANDLE pipe, BOOL busy )
         r9b_trace( "client refused" );
         goto out;
     }
+    busy = InterlockedCompareExchange( &r9b_busy, 1, 0 ) != 0;
+    *held = !busy;
     r9b_trace( "request" );
 
     /* Policy (session 0's registry) and the limits. No prompt on an insecure desktop in this version. */
@@ -516,10 +543,10 @@ out:
 static DWORD WINAPI r9b_client_thread( void *param )
 {
     HANDLE pipe = param;
-    BOOL busy = InterlockedCompareExchange( &r9b_busy, 1, 0 ) != 0;
+    BOOL held = FALSE;
 
-    r9b_request( pipe, busy );
-    if (!busy) InterlockedExchange( &r9b_busy, 0 );
+    r9b_request( pipe, &held );
+    if (held) InterlockedExchange( &r9b_busy, 0 );
     /* The agent reads END and closes: wait for that, bounded and ended by a service stop, so the last message is
      * not cut off by the disconnect. Never FlushFileBuffers here: a client that does not read would hold this
      * worker, and with it one of the broker's few connections, for good (review, 2026-11-13). */
@@ -536,8 +563,11 @@ static DWORD WINAPI r9b_client_thread( void *param )
 
 static HANDLE r9b_create_instance( BOOL first )
 {
-    /* SYSTEM only: a session's agent (its token described over the bridge) and nothing else. */
-    return wex_pipe_create_instances( R9B_PIPE_NAME, L"D:P(A;;GA;;;SY)", first, R9B_FRAME_MAX, R9B_INSTANCES );
+    /* A session's agent (its token described over the bridge) and nothing else. Since B132 that token is the agent's
+     * account with SYSTEM deny-only (an allow ACE for SY no longer matches it), so the descriptor lets interactive
+     * callers connect and r9b_client_ok admits only a session's SYSTEM; anyone else is refused at the first read. */
+    return wex_pipe_create_instances( R9B_PIPE_NAME, L"D:P(A;;GA;;;SY)(A;;GRGW;;;IU)", first, R9B_FRAME_MAX,
+                                      R9B_INSTANCES );
 }
 
 /* The service's main loop in session 0, in place of serve(). */
