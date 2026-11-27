@@ -5219,3 +5219,14 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## winewayland.drv: no layout request for a scale change alone (2026-11-27)
+
+`dlls/winewayland.drv/wayland_wex.c` (`wayland_wex_update_hosting`), `waylanddrv.h` (`wex_host_client`,
+`wex_host_scale`); Wine `claude/wayland-scale-driver-hold`. A hosted native group's layout request (`configure_foreign`)
+is not sent when only the output scale changed since the last one (same Win32 client rectangle): the shell converts the
+placement first (`wex_scale_changed`, the window keeps its top left and device-independent size) and the request follows
+the converted rectangle. Sending it at once, from the unconverted rectangle at the new scale, resized the native client
+for the other scale and raced the conversion. Maximized and fullscreen windows keep the driver's own conversion. Test:
+`scripts/wexbuild-root/wayland-scale-cycle.sh`, ten runs, hosted foot and the plain window 60 of 60 checks each
+(`docs/WAYLAND_DEFAULT.md`, "Hosted case fixed").

@@ -538,14 +538,30 @@ static void map_window( const WEX_WM_EVENT *event )
     manage( lw );
 }
 
+static void wex_scale_hold_observation( struct linux_window *lw );
+
+/* Whether an observed native rectangle answers the placement a scale change asked for: at the same top left, and with
+ * a size of its own choosing near the requested one (a terminal snaps to its cell grid). A rectangle sized for the
+ * other scale (the answer to a layout request that was sent before the conversion) is not the answer. */
+static BOOL scale_answer( const RECT *requested, const RECT *observed )
+{
+    int want_w = requested->right - requested->left, want_h = requested->bottom - requested->top;
+    int got_w = observed->right - observed->left, got_h = observed->bottom - observed->top;
+    return abs( observed->left - requested->left ) <= 2 && abs( observed->top - requested->top ) <= 2 &&
+           abs( got_w - want_w ) <= max( 24, want_w / 5 ) && abs( got_h - want_h ) <= max( 24, want_h / 5 );
+}
+
 static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *event)
 {
-    WEX_WM_EVENT mapped = native_event_to_wine(event,lw->host);
-    RECT frame=mapped.rect, client, screen, current;
+    WEX_WM_EVENT mapped;
+    RECT frame, client, screen, current;
     struct linux_window *owner;
     HWND wanted_owner;
     DWORD style, ex_style;
     BOOL minimized;
+    wex_scale_hold_observation( lw );
+    mapped = native_event_to_wine( event, lw->host );
+    frame = mapped.rect;
     lw->native_snapshot = *event;
     event = &mapped;
     if (!!(event->flags & WEX_WM_NO_BORDER) != !!(lw->flags & WEX_WM_NO_BORDER) ||
@@ -578,8 +594,7 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
      * rectangle answers it, with the size the client chose, and is not allowed to write the placement back before
      * it has caught up (the usual two seconds are too short for a client that snaps its size). */
     if (lw->geometry_pending && (EqualRect(&lw->requested_geometry,&event->rect) ||
-        (lw->scale_hold && abs(event->rect.left-lw->requested_geometry.left)<=2 &&
-         abs(event->rect.top-lw->requested_geometry.top)<=2) ||
+        (lw->scale_hold && scale_answer(&lw->requested_geometry,&event->rect)) ||
         (!lw->interactive && (DWORD)(GetTickCount()-lw->geometry_requested_at)>=(lw->scale_hold ? 10000 : 2000))))
     {
         lw->geometry_pending=FALSE;
@@ -796,8 +811,34 @@ static BOOL CALLBACK scale_window( HWND hwnd, LPARAM lparam )
     if (!GetWindowRect( hwnd, &rect )) return TRUE;
     SetRect( &monitor, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );
     if (rect.left <= 0 && rect.top <= 0 && rect.right >= monitor.right && rect.bottom >= monitor.bottom) return TRUE;
-    width = MulDiv( rect.right - rect.left, scales[1], scales[0] );
-    height = MulDiv( rect.bottom - rect.top, scales[1], scales[0] );
+    /* The client area keeps its device-independent size; the frame around it (caption, borders) keeps its physical
+     * metrics, as Wine draws it. Scaling the whole window rectangle grew the client by the frame's share too, and a
+     * hosted native client that snaps its size (a terminal's cell grid) then lost a few pixels on every round trip. */
+    /* A client that snaps its size (a terminal fits whole text rows) answers each conversion a little smaller; the
+     * size it was meant to have (device-independent, kept in a property) is what the next conversion starts from, as
+     * long as the window's size is within one such snap of it. A larger difference is a resize: it becomes the new
+     * intended size. */
+    {
+        RECT client, frame;
+        DWORD ex_style = GetWindowLongW( hwnd, GWL_EXSTYLE );
+        ULONG_PTR kept = (ULONG_PTR)GetPropW( hwnd, L"__wex_dip_client" );
+        int dip_w, dip_h, kept_w = LOWORD( kept ), kept_h = HIWORD( kept );
+        GetClientRect( hwnd, &client );
+        dip_w = MulDiv( client.right, 120, scales[0] );
+        dip_h = MulDiv( client.bottom, 120, scales[0] );
+        if (kept && abs( dip_w - kept_w ) <= max( 24, kept_w * 15 / 100 ) &&
+            abs( dip_h - kept_h ) <= max( 24, kept_h * 15 / 100 ))
+        {
+            dip_w = kept_w;
+            dip_h = kept_h;
+        }
+        else if (dip_w > 0 && dip_h > 0 && dip_w < 65536 && dip_h < 65536)
+            SetPropW( hwnd, L"__wex_dip_client", (HANDLE)(ULONG_PTR)MAKELONG( dip_w, dip_h ) );
+        SetRect( &frame, 0, 0, MulDiv( dip_w, scales[1], 120 ), MulDiv( dip_h, scales[1], 120 ) );
+        AdjustWindowRectEx( &frame, style, GetMenu( hwnd ) != NULL, ex_style );
+        width = frame.right - frame.left;
+        height = frame.bottom - frame.top;
+    }
     TRACE( "window %p %s -> %dx%d at the same top left\n", hwnd, wine_dbgstr_rect( &rect ), width, height );
     SetWindowPos( hwnd, NULL, rect.left, rect.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER );
     return TRUE;
@@ -809,11 +850,41 @@ void wex_scale_changed( UINT scale )
 {
     UINT scales[2];
 
+    struct linux_window *lw;
+    RECT client, screen;
+
     if (!scale || scale == applied_scale) return;
     scales[0] = applied_scale;
     scales[1] = scale;
     applied_scale = scale;
     EnumWindows( scale_window, (LPARAM)scales );
+    /* A hosted frame's native client answers the conversion with a size of its own, through observations that can
+     * arrive before this frame's own scale message: hold every hosted frame's converted placement now, so none of
+     * those observations writes the native rectangle back as the placement (wex_scale_hold_observation). */
+    if (!wayland_mode) return;
+    LIST_FOR_EACH_ENTRY( lw, &windows, struct linux_window, entry )
+    {
+        if (!lw->managed || !lw->host || (lw->flags & WEX_WM_NO_BORDER) ||
+            !GetPropW( lw->host, WEX_WAYLAND_HOST_PROP )) continue;
+        client_geometry( lw, &client, &screen );
+        lw->requested_geometry = screen;
+        lw->geometry_requested_at = GetTickCount();
+        lw->geometry_pending = TRUE;
+        lw->scale_hold = TRUE;
+    }
+}
+
+/* An observation of a hosted native client that already carries a new output scale, before the scale message that
+ * announces it (the driver posts the message, the compositor's observations come on another connection): convert the
+ * placement first, so the shell's rule is in force before the observation is looked at. */
+static void wex_scale_hold_observation( struct linux_window *lw )
+{
+    ULONG_PTR scale;
+
+    if (!wayland_mode || !lw->host) return;
+    if (!(scale = (ULONG_PTR)GetPropW( lw->host, WEX_WAYLAND_SCALE_PROP )))
+        scale = (ULONG_PTR)GetPropW( FindWindowW( L"Shell_TrayWnd", NULL ), WEX_WAYLAND_SCALE_PROP );
+    if (scale && scale != applied_scale) wex_scale_changed( scale );
 }
 
 static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
@@ -829,8 +900,10 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
          * multiplying it by the new scale would enlarge and move the frame
          * before the driver's coordinated layout update can complete. */
         wex_scale_changed( wp );   /* converts every window's placement (once per change); this frame's included */
-        if (!(lw->flags & WEX_WM_NO_BORDER) &&
-            (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE)
+        /* Every hosted frame, whether its group is active or not at this moment: a native client that commits at the
+         * new scale drops the group, and following its rectangle (the other scale's logical place) is what the hold
+         * prevents. */
+        if (!(lw->flags & WEX_WM_NO_BORDER) && GetPropW(hwnd,WEX_WAYLAND_HOST_PROP))
         {
             client_geometry(lw,&client,&screen);
             lw->requested_geometry=screen;

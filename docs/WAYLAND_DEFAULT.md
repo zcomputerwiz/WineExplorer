@@ -258,6 +258,32 @@ way.
      position; the re-adoption attempt, wexcomp `claude/scale-adopt-wip`, did not help: 23 of 48). Hosting of native
      windows is opt-in (`WEX_WAYLAND_NATIVE_WINDOWS=1`); the default Wayland session does not use it. Open: the hosted
      case, and A's interactive-resize case with the stall time measured.
+   - **Hosted case fixed (2026-11-27), from a traced diagnosis.** (The two trials of 2026-11-27 above ran against the
+     wexbuild tree's shell, an older copy without `wex_scale_changed`; their numbers do not describe this rule.) The
+     compositor (every geometry snapshot it sends, every frame move) and the shell (every conversion of a native event,
+     every reconcile, every scale message) logged on one realtime clock, merged per run. What it showed, in the ~40 ms
+     after `wlr-randr` changes the scale, before the hosted frame's own scale message reaches the shell:
+     1. the driver sends the group's layout request at once, computed from the unconverted Win32 rectangle at the new
+        scale (240 physical -> 160 logical), and `foot` answers it;
+     2. `foot` also commits at the new scale with a size of its own, and the compositor drops the group (`native_committed`,
+        and `frame_committed` because Wine's first frame buffer at the new scale still has the old physical size); the
+        dropped native keeps the other scale's logical place, and the re-adoption cannot move it;
+     3. the shell, its hold not yet set (only the frame's own scale message set it, and cleared it when the group was not
+        active), follows each transient native rectangle as the placement.
+     So three writers, and which answer arrived last decided the result: the "race". Fixes, one per writer:
+     - shell (`wexshell/linux_windows.c`): the conversion and the hold start at the first sign of the new scale (an
+       observation that carries it, or any scale message), for every hosted frame whatever its group state; the hold
+       ends only on an answer near the converted size, not on a stale answer at the right top left; the conversion scales
+       the client area and keeps Wine's frame metrics physical, and starts from the window's intended device-independent
+       size (a property), so a client that snaps to whole text rows does not lose a row per change;
+     - driver (Wine `claude/wayland-scale-driver-hold`, `wayland_wex_update_hosting`): no layout request for a scale
+       change alone; it follows the shell's converted rectangle (maximized and fullscreen keep the driver's conversion);
+     - compositor (wexcomp `claude/scale-hosted-keep`): a hosted group is kept, not dropped, while the output scale differs
+       from the scene's, and the scale-change transaction takes the frame's margins from the last frame size that matched
+       the client box, not from a transitional buffer (that gave negative margins and a transaction that always timed out).
+     After each fix the runs became more alike; with all of them every run is identical to the pixel. Result: ten runs in a
+     row, hosted foot and the plain window, 60 of 60 checks each (top left kept, size 1.5 times at 150% and back at 100%,
+     no drift over three cycles).
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
