@@ -5219,3 +5219,15 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## Session 0's default graphics driver is the null driver (2026-11-26)
+
+Wine `claude/session0-null-driver` (one commit on development): `programs/explorer/desktop.c`,
+`load_graphics_driver`. When no driver is named (no `/desktop=...,driver` argument), a process whose session id is 0
+starts from `null` instead of `mac,x11,wayland`; an explicit `HKCU\Software\Wine\Drivers` `Graphics` value is read
+afterwards and still wins. Other sessions (stock Wine's processes are in session 1) are unchanged. Session 0 has no
+display: every driver failed, win32u then refused every top-level window ("no driver could be loaded"), and
+ShellExecuteEx from a session 0 setup failed with it (B108: Edge's `MicrosoftEdgeUpdate.exe /handoff` from the MSI's
+SYSTEM custom action, 0x80004005). As in Windows' non-interactive session 0, its windows now exist and are never
+shown. Test: suite section `s0_window` (`scripts/session0-window-probe.c`, 64-bit and 32-bit in session 0 without
+DISPLAY or WAYLAND_DISPLAY: a window and driver `null`; a user's session keeps its own driver).

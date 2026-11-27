@@ -198,6 +198,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_window        s0_base            n   s0
 s0_scmloop       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
 s0_accounts      s0_base,c5_build   n   s0
@@ -5797,6 +5798,29 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+if section s0_window; then set +e; ( section_enter
+# B108: session 0 has no display (s0_wine has no DISPLAY or WAYLAND_DISPLAY, like the installed image's session 0).
+# Its default graphics driver is the null driver, so a program there (a setup's hidden window, explorer /desktop)
+# gets a window that is never shown, as in Windows' non-interactive session 0; before, every window failed ("no
+# driver could be loaded") and so did ShellExecuteEx. A user's session keeps its own driver (winex11 here).
+for b in 64 32; do
+    if [ $b = 64 ]; then CC=x86_64-w64-mingw32-gcc; else CC=i686-w64-mingw32-gcc; fi
+    $CC -O2 -Wall -municode -o "$ROOT/probes/s0window$b.exe" "$SRC/scripts/session0-window-probe.c" -luser32 -ladvapi32 ||
+        fail "s0_window: cannot build the probe ($b)"
+done
+for b in 64 32; do
+    OUT="$(s0_wine "$ROOT/probes/s0window$b.exe" | tr -d '\r')"
+    grep -qx 'session=0' <<<"$OUT" && grep -qx 'window=ok' <<<"$OUT" && grep -qx 'driver=null' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "B108: a $b-bit session 0 program gets no window from the null driver"; }
+done
+ok st_session0_windows_use_the_null_driver_without_a_display
+OUT="$(as_wine "$STD" "$ROOT/probes/s0window64.exe")"
+grep -qx 'session=0' <<<"$OUT" && { echo "$OUT" >&2; fail "s0_window: $STD's program runs in session 0"; }
+grep -qx 'window=ok' <<<"$OUT" && grep -qx 'driver=wine[a-z0-9]*\.drv' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "s0_window: $STD's session does not keep its own graphics driver"; }
+kill_servers
+ok st_user_sessions_keep_their_graphics_driver
 true; ); section_leave $?; fi
 if section s0_scmloop; then set +e; ( section_enter
 # B109: the calls that a session forwards to session 0 (T5.4) failed with 1722 after hours of uptime with many elevated
