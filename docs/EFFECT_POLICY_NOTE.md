@@ -27,14 +27,14 @@ small checks and one parity item.
    `wlr`-side screenshots. This is a test, not a protocol change. **Needs your decision:** keep the fallbacks (my
    proposal) or remove them and make the tint flag mandatory for materials (a protocol clarification in the XML text, no
    version change).
-2. **Explicit zero-alpha tint, end to end.** Add an Acrylic and a Mica row to `dwm-material-parity-probe.c` whose tint is
+2. **Explicit zero-alpha tint, end to end. Done 2026-11-28 on X11 and Wayland (passes).** Add an Acrylic and a Mica row to `dwm-material-parity-probe.c` whose tint is
    set with alpha 0 (ACCENT_POLICY), and require the screen to equal the blur alone on X11 and on Wayland. If either
    backend draws a default instead, that is a bug of its own (most likely the Wayland client-side `scene_node_invisible`
    path, which was patched for blur rects in 30a04931).
 3. **Mica Alt has no table row.** It shows Mica's tint on X11 (printed in the parity run). On Windows it is a different
    material (`DWM_MEASUREMENTS.md`: tabbed is darker than Mica in light mode and nearly black in dark mode). A parity item
    for the table, with its own Windows measurement; unrelated to the protocol.
-4. **Wayland on-screen parity** of the same six windows (`wayland-class-shadow`-style headless run with `grim`): the topic
+4. **Wayland on-screen parity. Done 2026-11-28 (`wayland-material-parity.sh`; it found the shadow fallback defect, wexcomp 1f3cfaf6).** Of the same eight windows (`wayland-class-shadow`-style headless run with `grim`): the topic
    reports headless coverage of the Mica per output case only. The probe and script are written for X11 and need a
    Wayland variant; the expected values are the same table.
 

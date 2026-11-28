@@ -302,7 +302,19 @@ way.
      Acrylic light, Acrylic dark and Glass only (no tint) are all within one level of it on screen (for example Mica
      light over 3a6ea5 gives 151,177,204). The same run on the shell without the shared table gives the same pixels:
      the table was taken from the X11 painter and the topic only brought wexcomp to it, so X11 is unchanged. Mica Alt
-     has no table row and shows Mica light's tint under the X11 composer (printed, not checked). Needs libXdamage
+     has no table row and shows Mica light's tint under the X11 composer (printed, not checked). Two more rows: an
+     app's own tint through ACCENT_POLICY, Acrylic with tint alpha 0 (the blur alone: the desktop colour, not the default
+     tint) and a gradient of 50 % red (exact); both pass on X11. **Wayland run** (`wayland-material-parity.sh`, the same
+     probe and the same checker, `material-parity-check.py`; headless wexcomp with the pixman renderer, so the tint
+     alone, on wexcomp with 30a04931's material defaults): with frame effects off (`FX=0`) all eight rows equal the
+     X11 values to the pixel. With frame effects on, every row was about 13 % too dark, the glass-only row included: the
+     renderer-less fallback of the soft window shadow (and of the CS_DROPSHADOW layers) was six whole translucent
+     rectangles under the window, which darken whatever shows through a translucent window; the SceneFX shadow and the
+     X11 compositor's are clipped to outside. Fixed in wexcomp `claude/shadow-fallback-clip` (1f3cfaf6, on 30a04931):
+     each layer is drawn as up to four strips around the window box; all eight rows then pass with frame effects on.
+     The Wayland run needs `WEX_WAYLAND_NATIVE_WINDOWS=1` (the shell adopts the Wayland window manager only with it;
+     without it `composition unavailable, error 50` and no backdrop). Not covered: SceneFX's own blur (needs a GPU
+     renderer; over a flat desktop it changes no pixel). Needs libXdamage
      (`apt install libxdamage1`) and a Wine virtual desktop; with either missing the composer is unavailable
      (`composition unavailable, error 50`) and the windows stay black.
    - **Placement cases around a scale change, and a client that dies mid-resize (2026-11-28):**
