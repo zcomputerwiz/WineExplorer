@@ -295,6 +295,16 @@ way.
      and the last completes at the release, as on Windows. **Note:** that setting is off in a fresh WineExplorer prefix
      (Wine's default; nothing sets `HKCU\Control Panel\Desktop\DragFullWindows`), while XP has it on, so every window
      resizes as an outline today; a parity item for the defaults, not for this compositor work.
+   - **X11 on-screen parity of the material tints (2026-11-28):** `scripts/wexbuild-root/x11-material-parity.sh`
+     (Xvfb with Composite, Damage and Render; composition on; `explorer /desktop=Default,1280x800 /shell`, which the X11
+     composer needs; `scripts/dwm-material-parity-probe.c`, six windows over a flat desktop colour; read with `import`).
+     Expected pixel = background * (1 - alpha) + tint * alpha from `wex_material_default_tint`: Mica light, Mica dark,
+     Acrylic light, Acrylic dark and Glass only (no tint) are all within one level of it on screen (for example Mica
+     light over 3a6ea5 gives 151,177,204). The same run on the shell without the shared table gives the same pixels:
+     the table was taken from the X11 painter and the topic only brought wexcomp to it, so X11 is unchanged. Mica Alt
+     has no table row and shows Mica light's tint under the X11 composer (printed, not checked). Needs libXdamage
+     (`apt install libxdamage1`) and a Wine virtual desktop; with either missing the composer is unavailable
+     (`composition unavailable, error 50`) and the windows stay black.
    - **Placement cases around a scale change, and a client that dies mid-resize (2026-11-28):**
      `scripts/wexbuild-root/wayland-placement-cases.sh` (`CASE=max`, `CASE=move`; `scripts/wex-winctl.c` drives and
      reports the windows) and `wayland-hosted-resize.sh` with `KILL_AT=N`. Results on the scaling combination above:
