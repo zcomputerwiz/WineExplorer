@@ -5346,3 +5346,23 @@ user session).
   0, so the waiters wake when the importing process dies instead of waiting forever.
 - Test: `dlls/kernel32/tests/sync.c` `test_wine_internal_locks` (services.exe's instance mutex is in
   `\Sessions\<session>\WineObjects`, not under its Win32 name nor `Global\`; skipped off Wine).
+
+## winewayland.drv: no layout request for a scale change alone (2026-11-27)
+
+`dlls/winewayland.drv/wayland_wex.c` (`wayland_wex_update_hosting`), `waylanddrv.h` (`wex_host_client`,
+`wex_host_scale`); Wine `claude/wayland-scale-driver-hold`. A hosted native group's layout request (`configure_foreign`)
+is not sent when only the output scale changed since the last one (same Win32 client rectangle): the shell converts the
+placement first (`wex_scale_changed`, the window keeps its top left and device-independent size) and the request follows
+the converted rectangle. Sending it at once, from the unconverted rectangle at the new scale, resized the native client
+for the other scale and raced the conversion. Maximized and fullscreen windows keep the driver's own conversion. Test:
+`scripts/wexbuild-root/wayland-scale-cycle.sh`, ten runs, hosted foot and the plain window 60 of 60 checks each
+(`docs/WAYLAND_DEFAULT.md`, "Hosted case fixed").
+
+## winewayland.drv: a maximized toplevel's zone position is not the window's place (2026-11-28)
+
+`dlls/winewayland.drv/wayland_zones.c` (`item_position`, `wayland_zone_place`); Wine `claude/wayland-scale-driver-hold`
+(second commit). The position the compositor reports for a maximized or fullscreen toplevel (the corner) was written
+back with `NtUserSetWindowPos`, and the restored rectangle's position was requested for it, so restoring a maximized
+window put it at the corner instead of where it was. Both are skipped while the surface is maximized or fullscreen; a
+hosted frame (`WEX_WAYLAND_HOST_PROP`) is placed by Win32 in every state and is exempt. Test:
+`scripts/wexbuild-root/wayland-placement-cases.sh` (`CASE=max`, plain window: restore at the original place).

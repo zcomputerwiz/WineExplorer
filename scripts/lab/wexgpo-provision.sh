@@ -20,8 +20,9 @@ dpkg --add-architecture i386
 apt-get update -q
 mapfile -t PKGS < <(sed 's/\r$//' "$LIST" | grep -v -x -e wineexplorer -e '' )
 # all at once; if that fails, one by one, and say which did not install
-if ! apt-get install -y -q "${PKGS[@]}" perl samba-common-bin > /root/provision-apt.log 2>&1; then
-    for p in "${PKGS[@]}" perl; do
+# libxdamage1: the X11 composer (wexhost compose.c) loads libXdamage.so.1 and is unavailable without it
+if ! apt-get install -y -q "${PKGS[@]}" perl samba-common-bin libxdamage1 > /root/provision-apt.log 2>&1; then
+    for p in "${PKGS[@]}" perl libxdamage1; do
         apt-get install -y -q "$p" >> /root/provision-apt.log 2>&1 || echo "not installed: $p"
     done
 fi

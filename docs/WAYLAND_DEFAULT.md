@@ -160,6 +160,197 @@ way.
      of and below the window shows, 8 px wide, at most about 18% black at the edge. The headless check measures that
      shape (darker at 1 px than at 6 px, none at 12 px, none above or left). Not compared side by side with a real X11
      capture, and not run in a VM.
+
+6. The 150% scaling items, multi-output frame clock and Mica, CS_DROPSHADOW.
+   - **Restored live scaling at 150%: reproduced headless on 2026-11-26** (`scripts/wexbuild-root/wayland-scale-cycle.sh`:
+     headless wexcomp with server-side decoration, `explorer /shell` with `WEX_WAYLAND_NATIVE_WINDOWS=1`, a real restored
+     `foot` hosted in a Wine frame, 100% -> 150% -> 100% by `wlr-randr --scale`, the window found in a `grim` screenshot by
+     its background colour; needs the `foot` package). It fails in every run, with a different wrong state each time, all
+     steady for 12 s (not transient). Foot at 100%: (520,313)-(759,481). Seen after a scale change: at 150% the window
+     at (780,470), 1.5 times its place (the compositor kept the logical position; stays 395x245), or at (521,314) (the
+     physical place kept); and back at 100%: (780,470) (not restored), (347,209)-(490,312) (moved and shrunk by 1/1.5),
+     or correctly (520,313). Of 6 traced runs (3 cycles each) 4 failed somewhere and runs differ, so it is a race.
+     **What the traces show (temporary logging in `native_event_to_wine`, the shell's scale-message handler and the
+     compositor's `view_adjust_for_layout_change`, not kept):**
+     - The two outcomes at 150% are two behaviours. *Logical place kept*: the compositor leaves the native view at its
+       logical position (520,313), so it appears at physical (780,470). *Physical place kept*: within 7 ms of the scale
+       change, before the shell's scale message is handled, the native view and the Wine frame are already at logical
+       (347,209) (= physical (520,313) / 1.5) and the native size is 160x101 logical. The compositor's trace shows the
+       view's pending geometry already changed when `view_adjust_for_layout_change` runs (that function skips its stock
+       clamping for hosted views, as designed), so the mover is the Wine side's coordinated layout update (the
+       driver's `WM_WAYLAND_WEX_UPDATE` after the scale event), not the compositor.
+     - Failures happen on the way back to 100%: the native view stays at logical (347,209), 144x104, and nothing moves
+       it back, so the Wine frame then follows the native rectangle to physical (347,209) once the shell's two-second
+       `geometry_pending` guard expires. In passing cycles the same coordinated update moves it to (520,313) again. So
+       the open question is why the driver's update at the return to 100% sometimes does not reach the compositor.
+     - A trial (not shipped: the shell's scale-message handler also calling `WexWmConfigure` with the frame's physical
+       geometry) did not fix it: 16 of 30 checks still failed over 5 runs. The earlier trials (observation guard, active
+       frame authority) had the same result, so the shell side is probably not where the update is lost.
+     - **Driver trace** (temporary logging in `wayland_wex_update_hosting` and `wex_configured`, not kept): at every scale
+       change the driver sends one `configure_foreign` for the new logical client rectangle (for foot at 150%: 160x113
+       logical, serial N) and the group stays pending (`wex_group_pending`) while the Wine window changes size
+       several times; every later `update_hosting` returns early on that flag. The compositor answers the request about
+       two seconds later (its transaction timeout) with group status 2 (the hosted group is dropped), and the driver
+       re-adopts it at once (status 1, new serial). This happens at every scale change **in passing runs too** (11 to 16
+       status-2 answers per 3-cycle run in all four runs), so the timeout alone does not separate pass from fail. What
+       differs is which geometry wins at the re-adoption: the Wine frame's physical placement (pass) or the native
+       client's logical rectangle from the other scale (fail: the frame is moved to physical (347,209) and resized to
+       about 144x104 once the shell's two-second `geometry_pending` guard has expired).
+     - Reading: the transaction needs the native client to commit exactly the requested size, and foot (a cell grid with
+       its own size hints) does not, so the transaction always ends in the timeout and a detach/re-adopt, and the result
+       depends on a race in the re-adoption. This matches the lead in `docs/wayland-polish/item3-notes.md` (floating
+       clients may choose another size; `reconfigure_commit` requires the exact one). A fix is a design change, not a
+       one-line one: either the transaction accepts the size the native client chose within its hints (and the frame
+       follows it), or the re-adoption takes Wine's physical placement as authoritative and converts it to the new
+       scale. Neither is done; each must pass `wayland-scale-cycle.sh` ten times in a row before it ships.
+     - **Results of the attempts (2026-11-26, 3 cycles = 6 checks per run):** baseline about half of the checks fail
+       (18 of 36 over six traced runs). Driver retry on `not_ready` (3 retries): 11 of 30 fail, no better. **Accepting the
+       committed size in `reconfigure_commit`** (wexcomp `claude/scale-accept-committed-size` 5140bae7: the native
+       client's committed size becomes the client rectangle, the frame follows, at most twice): 11 of 48 fail over 8
+       runs, 4 of 8 runs pass completely; the compositor suite stays 63/63. That removes the transaction timeouts but
+       not the item. Also following a native client's *own* later resize (keeping the group instead of dropping it in
+       `native_committed`) was worse: 19 of 36 fail, with new modes (window at the bottom right edge), because the frame
+       and the terminal chase each other's snapped sizes.
+     - **What remains (traced):** after the transaction completes, foot re-snaps by itself (160x101 -> 144x104, or
+       126x104 on the next cycle), `native_committed` sees a size that differs from the group's client rectangle and drops
+       the group; the driver's re-adoption request carries Wine's physical rectangle, which no longer matches, so it is
+       answered `not_ready` twice; then the Wine frame follows the native window (still at the other scale's logical
+       position) and the group re-forms there. The native window's *position* was never restored. What is needed is a
+       re-adoption that moves the native view to the frame's client origin (Wine's placement authoritative) before the
+       commit, and then takes whatever size the client has, in one step: an adopt operation for a group that has no scene
+       (today `configure_foreign` without a scene only tries `commit_foreign`, which requires matching dimensions and does
+       not move anything). Not done.
+     - **Where the failures come from, and two trials (2026-11-27, `wayland-scale-cycle.sh`, 3 cycles = 6 checks per run):**
+       trace (compositor logging, not kept) of the hosted `foot`: at every scale change `foot` commits a size of its own
+       (cell grid, fractional scale), `native_committed` drops the group, Wine's frame follows the new native size, and the
+       group re-forms; the sizes drift by a cell or two per cycle, harmless. The position failures are a flip between two
+       models: after the compositor keeps the frame's *physical* place (logical 344,189 at 150%), the frame is moved to
+       logical 517,293 (the old logical place, which is physical 776,440), 1.5 times the original. Trial 1 (wexcomp
+       `claude/scale-drop-keeps-place` b00f4f06: a dropped group leaves the native window where it was shown, not at its
+       pre-group coordinates): baseline 10 of 18 checks fail over 3 runs, with it 11 of 36 over 6 runs (2 of 6 runs fully
+       clean). Trial 2 (not shipped: the shell's scale-message handler also treats a frame with the native host property
+       as owning its physical placement when the group is not active, so it does not apply the stale native snapshot at
+       the new scale): worse, 18 of 36 over 6 runs, with a 16 px vertical drift (the client offset differs between the
+       scales). So trial 1 halves the failures and is kept as a branch; trial 2 is not. Still not shippable.
+     - **First attempt at that adopt operation (not shipped):** on `configure_foreign` for a group dropped before
+       (a `group_dropped` flag on the frame), compose the pair at the native client's current size, which puts the native
+       view at the frame's client origin, then run the layout transaction to the requested size. It was worse than the
+       accept-committed-size change alone: 24 of 48 checks fail over 8 runs (against 11 of 48), and many runs end at 100%
+       with the native window at the 150% position and size (780,470)-(1175,716).
+     - **Trace of those adopt runs (compositor positions and scales at scene creation, view moves and transactions):**
+       the box is not computed at a stale scale; the two directions use different coordinate models and the factor 1.5
+       compounds. (1) At 100% -> 150% the group is already dropped when the first `configure_foreign` arrives (`dropped 1`,
+       no scene), so the native client never receives a resize request for the new scale. The frame keeps its logical
+       position (517,293), which is physical (776,440): the compositor's logical position is mirrored back into Wine's
+       physical placement ("logical place kept"). In some runs the native client also keeps its logical size (267x165),
+       which is 400x247 physical, and the group composes at that size, so the Wine frame grows by 1.5 to follow it.
+       (2) At 150% -> 100% Wine's physical placement (776,440 and 401x247) is kept ("physical place kept"), which at scale
+       1 is logical (776,440), 1.5 times the original; the transaction then asks the native client for 401x247 and the
+       window ends at the 150% rectangle. So one direction keeps the logical place and the other the physical one, and
+       what Wine remembers is whatever the first direction left. A single owner of placement across a scale change is
+       needed: either Wine's physical rectangle is saved at the scale message and restored (position and size, the native
+       size following within its own constraints) in both directions, or the logical one is. Neither exists; the
+       earlier observation-guard and active-frame trials changed only the shell side of this.
+   - **The rule that replaces the attempts above (decided 2026-11-26): one owner of placement across an output scale
+     change, the shell.** Windows' own model for a Per-Monitor-V2 window is the template: the window keeps its top left and
+     its device-independent size, so its physical size follows the scale ratio (the suggested rectangle of
+     `WM_DPICHANGED`). The shell (`wex_scale_changed` in `wexshell/linux_windows.c`, triggered by a hosted frame's or the
+     taskbar's scale message, once per change) converts every normal top-level window's size by the ratio around its top
+     left, in both directions, hosted frames and plain Wine windows alike. The compositor and the driver follow what the
+     shell sets; nobody else writes placement during a scale change. Minimized, maximized and fullscreen windows keep their
+     own policy. The session starts at 100% and the driver posts no message for the initial scale, so the shell assumes
+     120 (120ths) at the start. In the compositor, `view_adjust_for_layout_change` no longer applies stock labwc placement
+     (moving floating views in proportion to the layout, a second writer) to Wine windows or the native views their frames
+     reserve (wexcomp `claude/scale-owner-follow`, on top of the accept-committed-size change).
+   - **Result of that rule (headless, `wayland-scale-cycle.sh`, 3 cycles = 6 checks per run per window):** the plain Wine
+     window (`WITH_FOOT=0`) passes ten runs in a row, 0 of 60 checks failing: top left kept at both scales, size 1.5 times
+     at 150% and the original at 100%; the compositor suite stays 63/63. Hosted foot is **not** fixed: about 19 of 48
+     checks still fail (the group is dropped when the terminal re-snaps by itself, and nothing re-forms it at the frame's
+     position; the re-adoption attempt, wexcomp `claude/scale-adopt-wip`, did not help: 23 of 48). Hosting of native
+     windows is opt-in (`WEX_WAYLAND_NATIVE_WINDOWS=1`); the default Wayland session does not use it. Open: the hosted
+     case, and A's interactive-resize case with the stall time measured.
+   - **Hosted case fixed (2026-11-27), from a traced diagnosis.** (The two trials of 2026-11-27 above ran against the
+     wexbuild tree's shell, an older copy without `wex_scale_changed`; their numbers do not describe this rule.) The
+     compositor (every geometry snapshot it sends, every frame move) and the shell (every conversion of a native event,
+     every reconcile, every scale message) logged on one realtime clock, merged per run. What it showed, in the ~40 ms
+     after `wlr-randr` changes the scale, before the hosted frame's own scale message reaches the shell:
+     1. the driver sends the group's layout request at once, computed from the unconverted Win32 rectangle at the new
+        scale (240 physical -> 160 logical), and `foot` answers it;
+     2. `foot` also commits at the new scale with a size of its own, and the compositor drops the group (`native_committed`,
+        and `frame_committed` because Wine's first frame buffer at the new scale still has the old physical size); the
+        dropped native keeps the other scale's logical place, and the re-adoption cannot move it;
+     3. the shell, its hold not yet set (only the frame's own scale message set it, and cleared it when the group was not
+        active), follows each transient native rectangle as the placement.
+     So three writers, and which answer arrived last decided the result: the "race". Fixes, one per writer:
+     - shell (`wexshell/linux_windows.c`): the conversion and the hold start at the first sign of the new scale (an
+       observation that carries it, or any scale message), for every hosted frame whatever its group state; the hold
+       ends only on an answer near the converted size, not on a stale answer at the right top left; the conversion scales
+       the client area and keeps Wine's frame metrics physical, and starts from the window's intended device-independent
+       size (a property), so a client that snaps to whole text rows does not lose a row per change;
+     - driver (Wine `claude/wayland-scale-driver-hold`, `wayland_wex_update_hosting`): no layout request for a scale
+       change alone; it follows the shell's converted rectangle (maximized and fullscreen keep the driver's conversion);
+     - compositor (wexcomp `claude/scale-hosted-keep`): a hosted group is kept, not dropped, while the output scale differs
+       from the scene's, and the scale-change transaction takes the frame's margins from the last frame size that matched
+       the client box, not from a transitional buffer (that gave negative margins and a transaction that always timed out).
+     After each fix the runs became more alike; with all of them every run is identical to the pixel. Result: ten runs in a
+     row, hosted foot and the plain window, 60 of 60 checks each (top left kept, size 1.5 times at 150% and back at 100%,
+     no drift over three cycles).
+   - **Interactive resize of a hosted window with accept-committed-size ("A"), stall measured (2026-11-27):**
+     `scripts/wexbuild-root/wayland-hosted-resize.sh` (headless wexcomp 1120df36, the shell and driver above, a real
+     foot hosted in a Wine frame; a virtual pointer, `scripts/wex-vpointer.c`, drags the frame's bottom-right corner; the
+     stall is the time from wexhost's "accepted" to "complete" for each resize transaction). With "show window contents
+     while dragging" on: ten runs of 8 steps 400 ms apart, every transaction completes, median stall 16 ms (one frame),
+     the slowest single step 77 ms; ten runs of 16 steps 50 ms apart, every transaction completes, stalls 14-31 ms. Every
+     run: the top left stays, the frame grows with the drag, and at the end foot fills the frame's client area at its own
+     cell-grid size. Outline drag ("show window contents while dragging" off): each step supersedes the unpublished one
+     and the last completes at the release, as on Windows. **Note:** that setting is off in a fresh WineExplorer prefix
+     (Wine's default; nothing sets `HKCU\Control Panel\Desktop\DragFullWindows`), while XP has it on, so every window
+     resizes as an outline today; a parity item for the defaults, not for this compositor work.
+   - **X11 on-screen parity of the material tints (2026-11-28):** `scripts/wexbuild-root/x11-material-parity.sh`
+     (Xvfb with Composite, Damage and Render; composition on; `explorer /desktop=Default,1280x800 /shell`, which the X11
+     composer needs; `scripts/dwm-material-parity-probe.c`, six windows over a flat desktop colour; read with `import`).
+     Expected pixel = background * (1 - alpha) + tint * alpha from `wex_material_default_tint`: Mica light, Mica dark,
+     Acrylic light, Acrylic dark and Glass only (no tint) are all within one level of it on screen (for example Mica
+     light over 3a6ea5 gives 151,177,204). The same run on the shell without the shared table gives the same pixels:
+     the table was taken from the X11 painter and the topic only brought wexcomp to it, so X11 is unchanged. Mica Alt
+     has no table row and shows Mica light's tint under the X11 composer (printed, not checked). Two more rows: an
+     app's own tint through ACCENT_POLICY, Acrylic with tint alpha 0 (the blur alone: the desktop colour, not the default
+     tint) and a gradient of 50 % red (exact); both pass on X11. **Wayland run** (`wayland-material-parity.sh`, the same
+     probe and the same checker, `material-parity-check.py`; headless wexcomp with the pixman renderer, so the tint
+     alone, on wexcomp with 30a04931's material defaults): with frame effects off (`FX=0`) all eight rows equal the
+     X11 values to the pixel. With frame effects on, every row was about 13 % too dark, the glass-only row included: the
+     renderer-less fallback of the soft window shadow (and of the CS_DROPSHADOW layers) was six whole translucent
+     rectangles under the window, which darken whatever shows through a translucent window; the SceneFX shadow and the
+     X11 compositor's are clipped to outside. Fixed in wexcomp `claude/shadow-fallback-clip` (1f3cfaf6, on 30a04931):
+     each layer is drawn as up to four strips around the window box; all eight rows then pass with frame effects on.
+     The Wayland run needs `WEX_WAYLAND_NATIVE_WINDOWS=1` (the shell adopts the Wayland window manager only with it;
+     without it `composition unavailable, error 50` and no backdrop). Not covered: SceneFX's own blur (needs a GPU
+     renderer; over a flat desktop it changes no pixel). Needs libXdamage
+     (`apt install libxdamage1`) and a Wine virtual desktop; with either missing the composer is unavailable
+     (`composition unavailable, error 50`) and the windows stay black.
+   - **Placement cases around a scale change, and a client that dies mid-resize (2026-11-28):**
+     `scripts/wexbuild-root/wayland-placement-cases.sh` (`CASE=max`, `CASE=move`; `scripts/wex-winctl.c` drives and
+     reports the windows) and `wayland-hosted-resize.sh` with `KILL_AT=N`. Results on the scaling combination above:
+     - **Client killed during a live drag (`KILL_AT=3`): passes.** Every resize transaction ends (stage 3), the frame
+       goes with its client, the shell keeps running and hosts the next native client.
+     - **Maximize and restore, plain Wine window, no scale change: fails on the integrated Wine, fixed by Wine
+       `wayland_zones.c`.** The compositor reports the zone position it gave a maximized toplevel (0,0) and
+       `item_position` wrote it back as the window's place, so the restored window came back at the corner. Fix: the
+       driver ignores the zone position, and does not request one, while the surface is maximized or fullscreen (a
+       hosted frame is placed by Win32 in every state, so it is exempt). Passes at 100% with the fix.
+     - **Open: maximized across a scale change.** Maximized at 100%, output to 150% (still maximized and filling the
+       output: passes), restore at 150%: the window comes back at its 100% physical size (312x184 instead of about
+       468x279); at 100% again it then shrinks to two thirds. The other order (maximize at 150%, 100% while maximized,
+       restore) passes. `scale_window` skips maximized windows, so their restore rectangle is not converted; one
+       attempt that converted `rcNormalPosition` for them (a maximized window's device-independent size) had no
+       visible effect and was dropped; the restore rectangle's owner (shell, win32u or driver) is not found yet.
+     - **Open: a hosted foot does not restore from maximized** (with and without a scale change, also without the
+       scaling branches): it comes back maximized-sized and the frame is left at the maximized rectangle.
+     - **Not testable yet: a move between outputs of different scales.** With two outputs (HEADLESS-2 right of
+       HEADLESS-1 at 150%) Win32 sees one monitor: `EnumDisplayMonitors` and the winstation monitors give a single
+       (0,0)-(1280,800), although the driver adds both devices (`wayland_add_device_monitor` has (1280,0) for the
+       second). Needs its own look (Wine display code) before the move case can run; the script stops with "Win32
+       sees one monitor only".
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
