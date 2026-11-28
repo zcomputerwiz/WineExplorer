@@ -100,6 +100,8 @@ fi
 # A git worktree's .git file names a Windows path (D:/...): translate it for WSL.
 if [ -f "$D/wine/.git" ]; then
     GD=$(sed -n 's/^gitdir: //p' "$D/wine/.git" | tr -d '\r' | sed 's#^\([A-Za-z]\):#/mnt/\L\1#')
+    # a submodule's gitfile holds a path relative to the submodule's folder: make it absolute
+    case $GD in /*) ;; *) GD=$(cd "$D/wine/$GD" && pwd) ;; esac
     WGIT=(git --git-dir="$GD" --work-tree="$D/wine")
     [ -f "$GD/commondir" ] && GD=$(cd "$GD/$(tr -d '\r' < "$GD/commondir")" && pwd)
 else
@@ -109,6 +111,7 @@ fi
 # the same for the superproject when it is a worktree
 if [ -f "$D/.git" ]; then
     SGD=$(sed -n 's/^gitdir: //p' "$D/.git" | tr -d '\r' | sed 's#^\([A-Za-z]\):#/mnt/\L\1#')
+    case $SGD in /*) ;; *) SGD=$(cd "$D/$SGD" && pwd) ;; esac
     SGIT=(git -C "$D" --git-dir="$SGD" --work-tree="$D")
 else
     SGIT=(git -C "$D")

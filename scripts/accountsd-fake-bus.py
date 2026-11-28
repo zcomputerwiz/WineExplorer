@@ -4,9 +4,11 @@
 """A stand-in for AccountsService, logind and systemd on a private D-Bus, for the tests of wex-accountsd
 (scripts/test_accountsd.py). Usage: accountsd-fake-bus.py BUS-ADDRESS LOGFILE. Prints READY when the names are owned.
 
-The state: alice (1001, administrator), bob (1002, administrator, locked), carol (1003, standard), dave (1004, standard,
-logged in), svc (999, a system account), builtin (1005, administrator: the account the helper's configuration names as
-the built-in administrator). Every call that changes something is appended to LOGFILE as one JSON line, so that the test
+The state: alice (50001, administrator), bob (50002, administrator, locked), carol (50003, standard), dave (50004,
+standard, logged in), svc (999, a system account), builtin (50005, administrator: the account the helper's configuration
+names as the built-in administrator). The uids are far above the ones useradd hands out (the lowest free one from 1000:
+a fresh machine gives the suite's test users 1001, 1002, ...; a FAKE_EXTRA user at a fixed user's uid replaces it) and
+inside the helper's range of regular accounts (UID_MIN 1000 to UID_MAX 60000, tools/wex-accountsd/wex-accountsd.c). Every call that changes something is appended to LOGFILE as one JSON line, so that the test
 can see what the helper asked for and, above all, that a password hash is only ever sent to SetPassword."""
 import json
 import os
@@ -35,13 +37,13 @@ def add(name, uid, full='', admin=False, locked=False, system=False):
     users[name] = dict(name=name, uid=uid, full=full, type=1 if admin else 0, locked=locked, system=system)
 
 
-add('alice', 1001, 'Alice A', admin=True)
-add('bob', 1002, 'Bob B', admin=True, locked=True)
-add('carol', 1003, 'Carol C')
-add('dave', 1004, 'Dave D')
+add('alice', 50001, 'Alice A', admin=True)
+add('bob', 50002, 'Bob B', admin=True, locked=True)
+add('carol', 50003, 'Carol C')
+add('dave', 50004, 'Dave D')
 add('svc', 999, 'Service', system=True)
-add('builtin', 1005, 'Built-in Administrator', admin=True)
-LOGGED_IN = {1004}
+add('builtin', 50005, 'Built-in Administrator', admin=True)
+LOGGED_IN = {50004}
 # FAKE_MANY=N: N more users with long full names, for the paging of the list (F1)
 for i in range(int(os.environ.get('FAKE_MANY', '0'))):
     add('many%04d' % i, 3000 + i, 'M' * 250)

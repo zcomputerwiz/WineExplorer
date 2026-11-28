@@ -5965,7 +5965,7 @@ st() { sed -n 's/^status=//p' | head -1; }
 
 # who may read: a standard user and a limited administrator; the record comes back through the chain
 OUT="$(as_chain "$STD" read alice)"
-[ "$(st <<<"$OUT")" = 0 ] && grep -q 'uid=1001 type=1' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: $STD cannot read a user through the chain"; }
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'uid=50001 type=1' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: $STD cannot read a user through the chain"; }
 ok st_chain_standard_user_reads
 OUT="$(as_chain "$ADM" list)"
 [ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" && grep -q 'carol' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: the list through the chain"; }
