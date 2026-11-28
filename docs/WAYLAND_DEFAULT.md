@@ -295,6 +295,29 @@ way.
      and the last completes at the release, as on Windows. **Note:** that setting is off in a fresh WineExplorer prefix
      (Wine's default; nothing sets `HKCU\Control Panel\Desktop\DragFullWindows`), while XP has it on, so every window
      resizes as an outline today; a parity item for the defaults, not for this compositor work.
+   - **Placement cases around a scale change, and a client that dies mid-resize (2026-11-28):**
+     `scripts/wexbuild-root/wayland-placement-cases.sh` (`CASE=max`, `CASE=move`; `scripts/wex-winctl.c` drives and
+     reports the windows) and `wayland-hosted-resize.sh` with `KILL_AT=N`. Results on the scaling combination above:
+     - **Client killed during a live drag (`KILL_AT=3`): passes.** Every resize transaction ends (stage 3), the frame
+       goes with its client, the shell keeps running and hosts the next native client.
+     - **Maximize and restore, plain Wine window, no scale change: fails on the integrated Wine, fixed by Wine
+       `wayland_zones.c`.** The compositor reports the zone position it gave a maximized toplevel (0,0) and
+       `item_position` wrote it back as the window's place, so the restored window came back at the corner. Fix: the
+       driver ignores the zone position, and does not request one, while the surface is maximized or fullscreen (a
+       hosted frame is placed by Win32 in every state, so it is exempt). Passes at 100% with the fix.
+     - **Open: maximized across a scale change.** Maximized at 100%, output to 150% (still maximized and filling the
+       output: passes), restore at 150%: the window comes back at its 100% physical size (312x184 instead of about
+       468x279); at 100% again it then shrinks to two thirds. The other order (maximize at 150%, 100% while maximized,
+       restore) passes. `scale_window` skips maximized windows, so their restore rectangle is not converted; one
+       attempt that converted `rcNormalPosition` for them (a maximized window's device-independent size) had no
+       visible effect and was dropped; the restore rectangle's owner (shell, win32u or driver) is not found yet.
+     - **Open: a hosted foot does not restore from maximized** (with and without a scale change, also without the
+       scaling branches): it comes back maximized-sized and the frame is left at the maximized rectangle.
+     - **Not testable yet: a move between outputs of different scales.** With two outputs (HEADLESS-2 right of
+       HEADLESS-1 at 150%) Win32 sees one monitor: `EnumDisplayMonitors` and the winstation monitors give a single
+       (0,0)-(1280,800), although the driver adds both devices (`wayland_add_device_monitor` has (1280,0) for the
+       second). Needs its own look (Wine display code) before the move case can run; the script stops with "Win32
+       sees one monitor only".
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;

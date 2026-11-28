@@ -11,13 +11,16 @@
 # longer than MAXSTALL ms (default 500) or is superseded within that by the next step, and the last completes; LIVE=0 (an outline drag): the last completes at the release. Both: the frame grew, and at the
 # end foot fills the frame's client area (its bounding box matches the frame's client box within TOL px, default 2) at
 # the size foot chose (its cell grid), with no gap and no overlap. COMP, W, OUT, VP name the compositor, the build, the
-# output directory and the wex-vpointer binary.
+# output directory and the wex-vpointer binary. KILL_AT=N kills foot after step N of the drag instead: every open resize
+# transaction must end, the frame must go with its client, and the shell must host the next native client (CTL names
+# wex-winctl.exe).
 COMP=${COMP:-/root/wexcomp-dev/build/labwc}
 W=${W:-/root/WE-chrome/build/wow64}
 OUT=${OUT:-/root/hr-out}
 VP=${VP:-/root/wex-vpointer}
 STEPS=${STEPS:-8}; DX=${DX:-20}; DY=${DY:-15}; PAUSE=${PAUSE:-400}
 MAXSTALL=${MAXSTALL:-500}; TOL=${TOL:-2}
+KILL_AT=${KILL_AT:-0}; CTL=${CTL:-/root/wex-winctl.exe}
 RC=0
 mkdir -p "$OUT"
 R=$(mktemp -d /tmp/wex-hr-XXXXXX); chmod 700 "$R"
@@ -78,8 +81,43 @@ GX=$((X1 + 2)); GY=$((Y1 + 2))
 CMD=(move $GX $GY sleep 300 down sleep 300)
 for s in $(seq 1 "$STEPS"); do CMD+=(move $((GX + s * DX)) $((GY + s * DY)) sleep "$PAUSE"); done
 CMD+=(up sleep 2000)
+if [ "$KILL_AT" -gt 0 ]; then
+    # foot is killed after step KILL_AT, while the drag goes on: the open transaction must end, the frame must go,
+    # and the shell must still host the next native client
+    (sleep "$(awk -v ms=$((600 + KILL_AT * PAUSE + PAUSE / 2)) 'BEGIN { print ms / 1000 }')"; pkill -9 -x foot) &
+fi
 WAYLAND_DISPLAY=wex-shell-0 "$VP" 1280 800 "${CMD[@]}" > "$OUT/pointer.log" 2>&1
 sleep 2
+if [ "$KILL_AT" -gt 0 ]; then
+    ctl() { WAYLAND_DISPLAY=wex-shell-0 ./wine "Z:$CTL" "$@" 2>>"$OUT/ctl.err" | tr -d '\r'; }
+    python3 - "$L" <<'PY' || RC=1
+import re, sys
+acc = {}; end = {}
+for line in open(sys.argv[1], errors="replace"):
+    m = re.match(r'\s*(\d+\.\d+):.*resize (\d+) stage (-?\d+)', line)
+    if not m: continue
+    serial, stage = int(m.group(2)), int(m.group(3))
+    if stage == 0: acc.setdefault(serial, 1)
+    elif stage == 3 or stage >= 5: end.setdefault(serial, stage)
+open_ = sorted(s for s in acc if s not in end)
+print("transactions %d, ended %d (stages %s), still open %s" % (len(acc), len(end), sorted(set(end.values())), open_ or "none"))
+print("PASS every resize transaction ended after the client died" if acc and not open_ else
+      "FAIL resize transactions left open after the client died" if open_ else "FAIL no resize transaction started")
+sys.exit(0 if acc and not open_ else 1)
+PY
+    for i in $(seq 1 10); do [ "$(ctl "Wex real native client" state)" = none ] && break; sleep 0.5; done
+    st=$(ctl "Wex real native client" state)
+    [ "$st" = none ] && echo "PASS the frame went with its client" || { RC=1; echo "FAIL the frame outlived its client: $st"; }
+    pgrep -f 'explorer.exe /shell' >/dev/null && echo "PASS the shell is still running" || { RC=1; echo "FAIL the shell is gone"; }
+    (WAYLAND_DISPLAY=wayland-0 GDK_BACKEND=wayland foot --title="Wex second client" --app-id=wex-second -w240x180 \
+        -o colors.background=885533 /usr/bin/sleep 900 >"$OUT/foot2.log" 2>&1 &)
+    sleep 8
+    st=$(ctl "Wex second client" state); box=$(bbox second 885533)
+    if [ "$st" != none ] && [ "$box" != none ]; then echo "PASS the next native client is hosted: $st"
+    else RC=1; echo "FAIL the next native client is not hosted: frame $st, on screen $box"; fi
+    WINEPREFIX=$WINEPREFIX ./server/wineserver -k; pkill -9 -x foot; kill $CPID 2>/dev/null
+    exit $RC
+fi
 read -r F0 G0 F1 G1 <<<"$(bbox end 338855)"
 echo "hosted foot after the drag: $F0,$G0 $F1,$G1"
 python3 - "$L" "$MAXSTALL" "${LIVE:-1}" <<'PY' || RC=1
