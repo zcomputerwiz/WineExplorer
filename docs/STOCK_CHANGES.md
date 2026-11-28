@@ -5230,3 +5230,12 @@ the converted rectangle. Sending it at once, from the unconverted rectangle at t
 for the other scale and raced the conversion. Maximized and fullscreen windows keep the driver's own conversion. Test:
 `scripts/wexbuild-root/wayland-scale-cycle.sh`, ten runs, hosted foot and the plain window 60 of 60 checks each
 (`docs/WAYLAND_DEFAULT.md`, "Hosted case fixed").
+
+## winewayland.drv: a maximized toplevel's zone position is not the window's place (2026-11-28)
+
+`dlls/winewayland.drv/wayland_zones.c` (`item_position`, `wayland_zone_place`); Wine `claude/wayland-scale-driver-hold`
+(second commit). The position the compositor reports for a maximized or fullscreen toplevel (the corner) was written
+back with `NtUserSetWindowPos`, and the restored rectangle's position was requested for it, so restoring a maximized
+window put it at the corner instead of where it was. Both are skipped while the surface is maximized or fullscreen; a
+hosted frame (`WEX_WAYLAND_HOST_PROP`) is placed by Win32 in every state and is exempt. Test:
+`scripts/wexbuild-root/wayland-placement-cases.sh` (`CASE=max`, plain window: restore at the original place).
