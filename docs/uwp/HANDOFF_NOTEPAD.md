@@ -844,8 +844,29 @@ Runs ns1-ns13 (no relay, build 19045 + per-app 23H2, lab u13 with the d2d1 Outli
   `SetDefaultExtension`, `SetFileTypes(2)`, `SetOptions(0x884a)`, `Show`. Both propsys and comdlg32 returned `E_NOTIMPL`. Fixed:
   Wine `claude/save-dialog-props` 5230a26c. Now "Save as" opens; Enter saves `Desktop\hello.txt` (5 bytes, "hello") and the title
   becomes `hello.txt - Notepad` (ns7, ns8).
-- Open: the dialog is black on screen. Its X window is mapped, 24-bit, the same visual as Notepad's, nothing above it; the dialog
-  thread answers WM_NULL. `savedlg-probe.cpp` shows the same dialog painted from a plain program, also inside the running Notepad
-  session, and with per-monitor-v2 DPI awareness; it is black as soon as that program has made a Direct3D 11 device and a
-  swapchain (an HWND flip swapchain or a DirectComposition one). So GDI windows of a process that uses wined3d don't reach X in
-  this tree; a general bug, reported to Session 0 (not Notepad's or comdlg32's).
+- ~~Open: the dialog is black on screen.~~ Not a bug (B136, closed): Debian's `xwd -root` returns black for a window lying fully
+  inside another window of the same visual. `import -window root` shows the dialog painted. The lab helpers capture with import
+  now (WineExplorer `claude/lab-import-capture`).
+
+## 2026-11-28: the text of the tab, menu, toolbar and status bar is drawn
+
+Lab dev1 (development + the Notepad branches + Integration's `claude/notepad-bars` and `claude/backdrop-colour`), run at4: the tab
+title, File/Edit/View, the formatting toolbar and the status bar ("Ln 1, Col 6", "5 characters") are drawn. Four pieces:
+
+- dwrite: the text analyzer's private method 3 (base direction of a range), Wine `claude/dwrite-base-direction` 2896f762. Needed
+  but not enough.
+- XAML draws every run of text and every icon into a shared atlas texture (704x576 and 32x32, B8G8R8A8, misc
+  SHARED|SHARED_NTHANDLE), each into its own rectangle: d3d11 private `{26c5dc23}` slot 6 (texture, &rect, 0), d2d context private
+  `{2ea67ed7}` slot 9 (bitmap, &rect), SetTarget, BeginDraw, Clear, DrawGlyphRun, EndDraw, slot 9 (bitmap, NULL), d3d11 slot 7
+  (texture). On Windows both rectangle calls confine all drawing, Clear included, to the rectangle (`d2d-m9-probe.cpp`,
+  `d3d11-m6-probe.cpp`). Wine stubbed them, so every Clear wiped the whole atlas. Atlas dumps after the fix show all runs intact.
+- The compositor thread opens the atlases with OpenSharedResource1 on its own device and samples them. Wine shares through a
+  CPU mapping written back on the creator's Flush (or a fence Signal); XAML never flushes, so the compositor's copy stayed empty.
+  Slot 7 now flushes. On Windows a second device does not see the update after slot 7 either, and the creating device reads zero
+  after it (`d3d11-share-probe.cpp`): Windows hands it to the compositor some other way, not known.
+- Wine `claude/d2d-update-rect`: slot 9 and slots 6/7 (the slot 6 rectangle is private data of the texture that d2d1 adds to its
+  scissor rectangle), tests in d2d1 (`test_context_private_update_rect`, `test_context_d3d11_update_rect`).
+
+Seen on the way: Wine's ClearView with a rectangle draws nothing (d3d11-share-probe); a device that opened a shared texture does
+not write back to its creator (one way only). Icon-font glyphs show as boxes in the atlas (Segoe Fluent Icons is not installed;
+the toolbar icons that are geometry draw fine). d2d context slot 10 is still a semi-stub.
